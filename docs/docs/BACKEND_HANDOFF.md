@@ -1490,3 +1490,7 @@ Before switching the client to the new backend, verify:
 - Database migration source: `supabase/migrations/`
 
 This document describes the backend contract as implemented at the snapshot date above. Re-check the live database security posture before performing a production data export or cutover if additional changes are made afterward.
+
+## 19. Replacement design deliverables
+
+The independent FastAPI + PostgreSQL replacement designed from this handoff is documented in this directory: start at [README.md](README.md), with the schema in DATABASE_DESIGN.md / DATABASE_DICTIONARY.md / DATABASE_ER_DIAGRAM.md, the Supabase mapping in SUPABASE_TO_POSTGRES_MAPPING.md, the API in API_REFERENCE.md / API_WORKFLOWS.md, and the architecture, security, and developer guidance in SYSTEM_ARCHITECTURE.md, AUTHENTICATION_AND_SECURITY.md, and DEVELOPMENT_GUIDE.md.
