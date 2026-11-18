@@ -7,7 +7,7 @@ from src.db.models import Base
 
 ENUMS = {
     "user_account_type": ["shopper", "retailer"],
-    "admin_role": ["admin", "super_admin"],
+    "user_role": ["shopper", "retailer", "admin", "super_admin"],
     "receipt_status": ["SUBMITTED", "REVIEWING", "APPROVED", "PAID", "REJECTED", "REVERSED"],
     "ledger_entry_type": ["RECEIPT_CASHBACK", "REFERRAL_BONUS", "REVERSAL"],
     "payout_method": ["UPI", "CASH"],
