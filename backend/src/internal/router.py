@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import uuid
 
 from fastapi import APIRouter, Depends, Header
@@ -25,7 +26,7 @@ def push_dispatch(
     db: Session = Depends(get_db),
 ):
     expected = f"Bearer {get_settings().internal_service_token}"
-    if authorization != expected:
+    if authorization is None or not hmac.compare_digest(authorization.encode(), expected.encode()):
         raise Unauthorized()
     result = push_service.dispatch_notification_push(db, body.notification_id, sender=_web_push_sender)
     db.commit()
