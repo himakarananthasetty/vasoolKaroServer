@@ -29,7 +29,9 @@ def ledger(
     result = service.list_ledger(db, user, page=page, page_size=page_size)
     return {
         "items": [service.LedgerOut.model_validate(r) for r in result["items"]],
-        "page": result["page"], "page_size": result["page_size"], "total": result["total"],
+        "page": result["page"],
+        "page_size": result["page_size"],
+        "total": result["total"],
     }
 
 
@@ -54,7 +56,9 @@ def list_payouts(
     result = service.list_payouts(db, user, page=page, page_size=page_size)
     return {
         "items": [service.PayoutOut.model_validate(r) for r in result["items"]],
-        "page": result["page"], "page_size": result["page_size"], "total": result["total"],
+        "page": result["page"],
+        "page_size": result["page_size"],
+        "total": result["total"],
     }
 
 

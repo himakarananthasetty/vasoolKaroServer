@@ -1,4 +1,5 @@
 """Email adapter. Dev/test default: log the token; production: set EMAIL_SMTP_URL."""
+
 from __future__ import annotations
 
 import logging
@@ -18,19 +19,17 @@ def send_recovery_email(email: str, raw_token: str | None) -> None:
         logger.info("password recovery requested for %s; dev token: %s", email, raw_token)
         return
     # Production SMTP adapter (clean interface; configure EMAIL_SMTP_URL).
-    import smtplib
-    from email.message import EmailMessage
-    from urllib.parse import urlparse
+    import smtplib  # noqa: PLC0415
+    from email.message import EmailMessage  # noqa: PLC0415
+    from urllib.parse import urlparse  # noqa: PLC0415
 
     parsed = urlparse(settings.email_smtp_url)
     msg = EmailMessage()
     msg["From"] = settings.email_from
     msg["To"] = email
     msg["Subject"] = "Reset your VasoolKaro password"
-    msg.set_content(
-        f"Use this one-time token to reset your password (valid 1 hour):\n\n{raw_token}\n"
-    )
-    with smtplib.SMTP(parsed.hostname, parsed.port or 587) as smtp:
+    msg.set_content(f"Use this one-time token to reset your password (valid 1 hour):\n\n{raw_token}\n")
+    with smtplib.SMTP(parsed.hostname or "localhost", parsed.port or 587) as smtp:
         if parsed.scheme == "smtps":
             smtp.starttls()
         user = parsed.username

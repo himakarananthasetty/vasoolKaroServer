@@ -3,14 +3,29 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.core.config import get_settings
-from src.core.errors import DobLocked, MinimumAge, NotFound, ValidationError
-from src.db.models import Offer, Receipt, SavedOffer, Todo, User, WalletLedger
+from src.core.errors import DeleteBlocked, DobLocked, MinimumAge, ValidationError
+from src.db.models import (
+    Notification,
+    Offer,
+    Payout,
+    PushSubscription,
+    Receipt,
+    SavedOffer,
+    SupportRequest,
+    Todo,
+    User,
+    WalletLedger,
+)
+from src.db.models import (
+    Session as UserSession,
+)
 
 PHONE_RE = re.compile(r"^\+?[0-9 ()-]{7,20}$")
 
@@ -86,16 +101,11 @@ def deletion_blockers(db: Session, user: User) -> str | None:
     has_ledger = db.scalar(select(WalletLedger.id).where(WalletLedger.user_id == user.id).limit(1))
     if has_ledger is not None:
         return "wallet_history"
-    from src.db.models import Payout
-    open_payout = db.scalar(
-        select(Payout.id).where(Payout.user_id == user.id, Payout.status == "REQUESTED").limit(1)
-    )
+    open_payout = db.scalar(select(Payout.id).where(Payout.user_id == user.id, Payout.status == "REQUESTED").limit(1))
     if open_payout is not None:
         return "open_payouts"
     open_claim = db.scalar(
-        select(Receipt.id).where(
-            Receipt.user_id == user.id, Receipt.status.in_(["SUBMITTED", "REVIEWING"])
-        ).limit(1)
+        select(Receipt.id).where(Receipt.user_id == user.id, Receipt.status.in_(["SUBMITTED", "REVIEWING"])).limit(1)
     )
     if open_claim is not None:
         return "open_claims"
@@ -108,14 +118,12 @@ def deletion_blockers(db: Session, user: User) -> str | None:
 def delete_account(db: Session, user: User) -> None:
     blocker = deletion_blockers(db, user)
     if blocker is not None:
-        from src.core.errors import DeleteBlocked
         raise DeleteBlocked(blocker)
 
     # No financial history: remove personal app records (financial tables are
     # empty by definition of the blockers), then anonymize + soft-delete.
     db.query(Todo).filter(Todo.user_id == user.id).delete()
     db.query(SavedOffer).filter(SavedOffer.user_id == user.id).delete()
-    from src.db.models import Notification, PushSubscription, Session as UserSession, SupportRequest
     db.query(Notification).filter(Notification.user_id == user.id).delete()
     db.query(PushSubscription).filter(PushSubscription.user_id == user.id).delete()
     db.query(SupportRequest).filter(SupportRequest.user_id == user.id).delete()
@@ -141,8 +149,6 @@ def save_avatar(db: Session, user: User, upload: UploadFile, content: bytes) -> 
     ext = ALLOWED_AVATAR_TYPES.get(upload.content_type or "")
     if ext is None:
         raise ValidationError("Avatar must be JPEG, PNG, or WebP.")
-    from pathlib import Path
-
     base = Path(settings.avatar_dir) / str(user.id)
     base.mkdir(parents=True, exist_ok=True)
     old = user.avatar_path

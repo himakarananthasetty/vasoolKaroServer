@@ -1,23 +1,20 @@
 """Admin: payout completion/cancellation restores balances correctly; roles."""
+
 from __future__ import annotations
 
+import uuid
 import uuid as _uuid
+
+from src.auth.service import register_user  # noqa: E402
+from src.core.db import SessionLocal  # noqa: E402
 
 
 def _rn(base: str) -> str:
     return f"{base}-{_uuid.uuid4().hex[:8]}"
 
-import uuid
-
-import pytest
-
 
 def _admin_signup(client):
     """Create a super_admin directly in the DB (admin roles are provisioned out-of-band)."""
-    from src.core.db import SessionLocal
-    from src.auth.service import register_user
-    from src.db.models import User
-
     email = f"admin-{uuid.uuid4().hex[:8]}@test.vasoolkaro"
     with SessionLocal() as db:
         user, _session, _raw = register_user(
@@ -29,20 +26,14 @@ def _admin_signup(client):
             business_name=None,
             date_of_birth=None,
         )
-        from sqlalchemy import update
+        from sqlalchemy import update  # noqa: PLC0415
 
-        db.execute(
-            update(UserRoleAssignment)
-            .where(UserRoleAssignment.user_id == user.id)
-            .values(role="super_admin")
-        )
+        db.execute(update(UserRoleAssignment).where(UserRoleAssignment.user_id == user.id).values(role="super_admin"))
         db.commit()
     r = client.post("/api/v1/auth/login", json={"email": email, "password": "Str0ng!pass9"})
     assert r.status_code == 200
     return {"headers": {"Authorization": f"Bearer {r.json()['access_token']}"}}
 
-
-from sqlalchemy import update  # noqa: E402
 
 from src.db.models import UserRole as UserRoleAssignment  # noqa: E402
 
@@ -106,15 +97,11 @@ def test_paid_reference_uniqueness(client, shopper, retailer, offer):
     admin = _admin_signup(client)
     # two shoppers, two payouts, same reference must be rejected the second time
     _fund(client, shopper, offer, times=1)
-    p1r = client.post(
-        "/api/v1/wallet/payouts", headers=shopper["headers"], json={"method": "UPI", "upi_id": "alpha@upi"}
-    )
+    p1r = client.post("/api/v1/wallet/payouts", headers=shopper["headers"], json={"method": "UPI", "upi_id": "alpha@upi"})
     assert p1r.status_code == 201, p1r.text
     p1 = p1r.json()
     ref = _rn("TXN")
-    done = client.post(
-        f"/api/v1/admin/payouts/{p1['id']}/complete", headers=admin["headers"], json={"payment_reference": ref}
-    )
+    done = client.post(f"/api/v1/admin/payouts/{p1['id']}/complete", headers=admin["headers"], json={"payment_reference": ref})
     assert done.status_code == 200
 
     # create a second shopper + payout
@@ -125,14 +112,10 @@ def test_paid_reference_uniqueness(client, shopper, retailer, offer):
     )
     two = {"headers": {"Authorization": f"Bearer {r.json()['access_token']}"}}
     _fund(client, two, offer, times=1)
-    p2r = client.post(
-        "/api/v1/wallet/payouts", headers=two["headers"], json={"method": "UPI", "upi_id": "beta@upi"}
-    )
+    p2r = client.post("/api/v1/wallet/payouts", headers=two["headers"], json={"method": "UPI", "upi_id": "beta@upi"})
     assert p2r.status_code == 201, p2r.text
     p2 = p2r.json()
-    dup = client.post(
-        f"/api/v1/admin/payouts/{p2['id']}/complete", headers=admin["headers"], json={"payment_reference": ref}
-    )
+    dup = client.post(f"/api/v1/admin/payouts/{p2['id']}/complete", headers=admin["headers"], json={"payment_reference": ref})
     assert dup.status_code in (400, 409)
 
 
@@ -157,9 +140,7 @@ def test_cancel_payout_restores_balance(client, shopper, offer):
     assert balance["pending_payout_cents"] == 0
 
     # a new payout is possible after cancellation
-    again = client.post(
-        "/api/v1/wallet/payouts", headers=shopper["headers"], json={"method": "UPI", "upi_id": "user@upi"}
-    )
+    again = client.post("/api/v1/wallet/payouts", headers=shopper["headers"], json={"method": "UPI", "upi_id": "user@upi"})
     assert again.status_code == 201
 
 

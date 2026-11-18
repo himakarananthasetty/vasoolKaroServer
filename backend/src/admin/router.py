@@ -5,11 +5,11 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from src.auth.dependencies import get_current_user, require_roles
-from src.core.db import get_db
-from src.db.models import User
 from src.admin import service
 from src.admin.service import CancelPayoutIn, CompletePayoutIn, SupportStatusIn
+from src.auth.dependencies import require_roles
+from src.core.db import get_db
+from src.db.models import User
 from src.support.service import SupportOut
 from src.wallet.service import PayoutOut
 

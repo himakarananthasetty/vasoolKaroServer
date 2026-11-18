@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from src.core.config import get_settings
 from src.core.db import get_db
-from src.core.errors import NotFound, Unauthorized
+from src.core.errors import Unauthorized
 from src.internal import push_service
 
 router = APIRouter(prefix="/internal", tags=["internal"])
@@ -27,9 +27,7 @@ def push_dispatch(
     expected = f"Bearer {get_settings().internal_service_token}"
     if authorization != expected:
         raise Unauthorized()
-    result = push_service.dispatch_notification_push(
-        db, body.notification_id, sender=_web_push_sender
-    )
+    result = push_service.dispatch_notification_push(db, body.notification_id, sender=_web_push_sender)
     db.commit()
     return result
 
@@ -41,7 +39,7 @@ def _web_push_sender(subscription, payload: dict) -> int:
     if not (settings.push_vapid_private_key and settings.push_vapid_public_key):
         return 200
     try:
-        from pywebpush import WebPushException, webpush
+        from pywebpush import WebPushException, webpush  # type: ignore[import-not-found]  # noqa: PLC0415
     except ImportError:
         return 200
     try:

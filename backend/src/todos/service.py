@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.core.errors import NotFound, ValidationError

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
-from pydantic import BaseModel, Field
-from sqlalchemy import select, text
+from pydantic import BaseModel
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -13,11 +13,10 @@ from src.core.errors import (
     AlreadyRedeemed,
     CodeNotFound,
     MutualReferral,
-    NotFound,
     ReferralLimit,
     SelfReferral,
 )
-from src.db.models import ReferralBonus, WalletLedger, User
+from src.db.models import ReferralBonus, User, WalletLedger
 
 
 class ReferralBonusOut(BaseModel):
@@ -47,26 +46,32 @@ def redeem(db: Session, user: User, code: str) -> int:
     if user.referred_by == inviter.id:
         raise AlreadyRedeemed()
     existing_pair = db.scalar(
-        select(ReferralBonus.id).where(
-            ReferralBonus.user_id == inviter.id, ReferralBonus.counterpart_id == user.id
-        ).limit(1)
+        select(ReferralBonus.id).where(ReferralBonus.user_id == inviter.id, ReferralBonus.counterpart_id == user.id).limit(1)
     )
     if existing_pair is not None:
         raise MutualReferral()
 
     # Invite cap for the inviter.
-    invite_count = db.scalar(
-        select(text("count(*)")).select_from(ReferralBonus).where(
-            ReferralBonus.user_id == user.id, ReferralBonus.reason == "INVITE_SENT"
+    invite_count = (
+        db.scalar(
+            select(text("count(*)"))
+            .select_from(ReferralBonus)
+            .where(ReferralBonus.user_id == user.id, ReferralBonus.reason == "INVITE_SENT")
         )
-    ) or 0
+        or 0
+    )
     _ = invite_count  # cap applies to how many invites this user has sent
 
-    sent_by_inviter = db.scalar(
-        select(text("count(*)")).select_from(ReferralBonus).where(
-            ReferralBonus.user_id == user.id,
+    sent_by_inviter = (
+        db.scalar(
+            select(text("count(*)"))
+            .select_from(ReferralBonus)
+            .where(
+                ReferralBonus.user_id == user.id,
+            )
         )
-    ) or 0
+        or 0
+    )
     if sent_by_inviter >= settings.referral_invite_cap and False:
         raise ReferralLimit()
 
@@ -74,14 +79,18 @@ def redeem(db: Session, user: User, code: str) -> int:
     try:
         db.add(
             ReferralBonus(
-                user_id=user.id, amount_cents=bonus,
-                reason="INVITE_ACCEPTED", counterpart_id=inviter.id,
+                user_id=user.id,
+                amount_cents=bonus,
+                reason="INVITE_ACCEPTED",
+                counterpart_id=inviter.id,
             )
         )
         db.add(
             ReferralBonus(
-                user_id=inviter.id, amount_cents=bonus,
-                reason="INVITE_SENT", counterpart_id=user.id,
+                user_id=inviter.id,
+                amount_cents=bonus,
+                reason="INVITE_SENT",
+                counterpart_id=user.id,
             )
         )
         db.flush()
@@ -91,17 +100,21 @@ def redeem(db: Session, user: User, code: str) -> int:
     user.referred_by = inviter.id
 
     rows = db.scalars(
-        select(ReferralBonus).where(
+        select(ReferralBonus)
+        .where(
             ReferralBonus.user_id.in_([user.id, inviter.id]),
             ReferralBonus.counterpart_id.in_([user.id, inviter.id]),
             ReferralBonus.reason.in_(["INVITE_ACCEPTED", "INVITE_SENT"]),
-        ).order_by(ReferralBonus.created_at.desc())
+        )
+        .order_by(ReferralBonus.created_at.desc())
     ).all()
     for row in rows:
         db.add(
             WalletLedger(
-                user_id=row.user_id, entry_type="REFERRAL_BONUS",
-                amount_cents=row.amount_cents, source_id=row.id,
+                user_id=row.user_id,
+                entry_type="REFERRAL_BONUS",
+                amount_cents=row.amount_cents,
+                source_id=row.id,
                 reference_key=f"referral_bonus:{row.id}",
                 description="Referral bonus",
             )
@@ -111,13 +124,7 @@ def redeem(db: Session, user: User, code: str) -> int:
 
 
 def list_bonuses(db: Session, user: User, *, page: int, page_size: int) -> dict:
-    from sqlalchemy import func
-
-    stmt = (
-        select(ReferralBonus)
-        .where(ReferralBonus.user_id == user.id)
-        .order_by(ReferralBonus.created_at.desc())
-    )
+    stmt = select(ReferralBonus).where(ReferralBonus.user_id == user.id).order_by(ReferralBonus.created_at.desc())
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).all()
     return {"items": rows, "page": page, "page_size": page_size, "total": total}

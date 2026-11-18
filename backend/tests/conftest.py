@@ -4,6 +4,7 @@ Start the disposable database first:
     cd tests && npm install && node pglite-server.cjs &
 Then run pytest with DATABASE_URL pointing at it (see DEVELOPMENT_GUIDE.md).
 """
+
 from __future__ import annotations
 
 import os
@@ -13,9 +14,7 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-os.environ.setdefault(
-    "DATABASE_URL", "postgresql+psycopg://postgres:postgres@127.0.0.1:54329/postgres"
-)
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://postgres:postgres@127.0.0.1:54329/postgres")
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-pytest-only-0123456789abcdef")
 os.environ.setdefault("INTERNAL_SERVICE_TOKEN", "test-internal-token")
 
@@ -37,8 +36,9 @@ def _schema():
 def client() -> TestClient:
     with TestClient(app) as c:
         yield c
-        from src.core.db import SessionLocal
-        from src.db.models import RateLimitEvent
+        from src.core.db import SessionLocal  # noqa: PLC0415
+        from src.db.models import RateLimitEvent  # noqa: PLC0415
+
         with SessionLocal() as db:
             db.query(RateLimitEvent).delete()
             db.commit()

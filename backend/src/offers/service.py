@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import Query
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -12,7 +11,14 @@ from src.core.errors import NotFound, ValidationError
 from src.db.models import Offer, Receipt, User
 
 CATEGORIES = {
-    "grocery", "dining", "retail", "outdoors", "health", "fuel", "electronics", "other",
+    "grocery",
+    "dining",
+    "retail",
+    "outdoors",
+    "health",
+    "fuel",
+    "electronics",
+    "other",
 }
 
 RETAILER_EDITABLE = {"title", "description", "merchant_address", "budget_cents", "ends_at", "active"}
@@ -93,8 +99,13 @@ def _available(offer: Offer) -> bool:
 
 
 def list_public_offers(
-    db: Session, *, page: int, page_size: int, category: str | None,
-    q: str | None, sort: str,
+    db: Session,
+    *,
+    page: int,
+    page_size: int,
+    category: str | None,
+    q: str | None,
+    sort: str,
 ) -> dict:
     now = datetime.now(UTC)
     stmt = select(Offer).where(
@@ -117,7 +128,9 @@ def list_public_offers(
     rows = db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).all()
     return {
         "items": [OfferOut.model_validate(o) for o in rows],
-        "page": page, "page_size": page_size, "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
     }
 
 
@@ -176,9 +189,7 @@ def update_offer(db: Session, owner: User, offer_id: uuid.UUID, body: OfferUpdat
 
 
 def list_retailer_offers(db: Session, owner: User) -> list[RetailerOfferOut]:
-    rows = db.scalars(
-        select(Offer).where(Offer.owner_id == owner.id).order_by(Offer.created_at.desc())
-    ).all()
+    rows = db.scalars(select(Offer).where(Offer.owner_id == owner.id).order_by(Offer.created_at.desc())).all()
     return [RetailerOfferOut.model_validate(o) for o in rows]
 
 
@@ -189,9 +200,13 @@ def retailer_claim_stats(db: Session, owner: User) -> list[dict]:
             func.count().label("claims"),
             func.sum(func.cast(Receipt.status.in_(["APPROVED", "PAID"]), __import__("sqlalchemy").Integer)).label("approved"),
             func.sum(func.cast(Receipt.status == "REJECTED", __import__("sqlalchemy").Integer)).label("rejected"),
-            func.coalesce(func.sum(
-                func.cast(Receipt.status.in_(["APPROVED", "PAID"]), __import__("sqlalchemy").Integer) * Receipt.cashback_cents
-            ), 0).label("approved_total_cents"),
+            func.coalesce(
+                func.sum(
+                    func.cast(Receipt.status.in_(["APPROVED", "PAID"]), __import__("sqlalchemy").Integer)
+                    * Receipt.cashback_cents
+                ),
+                0,
+            ).label("approved_total_cents"),
         )
         .join(Offer, Offer.id == Receipt.offer_id)
         .where(Offer.owner_id == owner.id)

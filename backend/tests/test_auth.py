@@ -1,4 +1,5 @@
 """Auth: signup, login, refresh rotation, session revocation, password change."""
+
 from __future__ import annotations
 
 import uuid
@@ -95,9 +96,7 @@ def test_refresh_rotates_and_revokes_old_token(client):
     assert replay.status_code == 401
 
     # the new token still works
-    second = client.post(
-        "/api/v1/auth/refresh", json={"refresh_token": new_tokens["refresh_token"]}
-    )
+    second = client.post("/api/v1/auth/refresh", json={"refresh_token": new_tokens["refresh_token"]})
     assert second.status_code == 200
 
 
@@ -131,7 +130,4 @@ def test_password_change_revokes_other_sessions(client):
 
 def test_me_requires_auth(client):
     assert client.get("/api/v1/me").status_code == 401
-    assert (
-        client.get("/api/v1/me", headers={"Authorization": "Bearer not-a-token"}).status_code
-        == 401
-    )
+    assert client.get("/api/v1/me", headers={"Authorization": "Bearer not-a-token"}).status_code == 401

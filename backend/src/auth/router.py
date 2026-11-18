@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import uuid
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, Request
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.auth import service
-from src.auth.dependencies import client_ip, get_current_user, get_user_session
-from src.core.security import create_access_token_with_session
+from src.auth.dependencies import client_ip, get_user_session
 from src.auth.schemas import (
     LoginIn,
     PasswordChangeIn,
@@ -23,7 +18,8 @@ from src.auth.schemas import (
 from src.common.email import send_recovery_email
 from src.common.rate_limit import check_rate_limit
 from src.core.db import get_db
-from src.core.errors import RateLimited, Unauthorized
+from src.core.errors import RateLimited
+from src.core.security import create_access_token_with_session
 from src.db.models import Session as UserSession
 from src.db.models import User
 
@@ -43,8 +39,12 @@ def _tokens(db: Session, user: User, session: UserSession, raw_refresh: str) -> 
 @router.post("/signup", response_model=TokenOut, status_code=201)
 def signup(body: SignupIn, request: Request, db: Session = Depends(get_db)):
     check_rate_limit(
-        db, action="signup", subject_kind="ip", subject_id=client_ip(request),
-        limit=10, window_seconds=3600,
+        db,
+        action="signup",
+        subject_kind="ip",
+        subject_id=client_ip(request),
+        limit=10,
+        window_seconds=3600,
     )
     user, session, raw_refresh = service.register_user(
         db,
@@ -63,8 +63,12 @@ def signup(body: SignupIn, request: Request, db: Session = Depends(get_db)):
 def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     ip = client_ip(request)
     check_rate_limit(
-        db, action="login", subject_kind="ip", subject_id=ip,
-        limit=10, window_seconds=900,
+        db,
+        action="login",
+        subject_kind="ip",
+        subject_id=ip,
+        limit=10,
+        window_seconds=900,
         error_factory=lambda wait: RateLimited("Too many login attempts.", retry_after_seconds=wait),
     )
     user, session, raw_refresh = service.login(db, body.email, body.password)
@@ -105,6 +109,7 @@ def password_change(
     db: Session = Depends(get_db),
 ):
     user = db.get(User, session.user_id)
+    assert user is not None
     service.change_password(db, user, body.current_password, body.new_password)
     service.revoke_all_other_sessions(db, user.id, session.id)
     db.commit()
@@ -113,8 +118,12 @@ def password_change(
 @router.post("/password/recovery", status_code=202)
 def password_recovery(body: PasswordRecoveryIn, request: Request, db: Session = Depends(get_db)):
     check_rate_limit(
-        db, action="password_recovery", subject_kind="ip", subject_id=client_ip(request),
-        limit=5, window_seconds=3600,
+        db,
+        action="password_recovery",
+        subject_kind="ip",
+        subject_id=client_ip(request),
+        limit=5,
+        window_seconds=3600,
     )
     raw = service.request_password_reset(db, body.email)
     db.commit()

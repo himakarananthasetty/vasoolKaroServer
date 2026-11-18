@@ -3,17 +3,17 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.common.rate_limit import check_rate_limit
 from src.core.config import get_settings
 from src.core.errors import NotFound, RateLimited, ValidationError
-from src.db.models import Notification, Offer, Receipt, WalletLedger, User
+from src.db.models import Notification, Offer, Receipt, User, WalletLedger
 
 CARD_RE = re.compile(r"^[0-9]{4}$")
 
@@ -53,16 +53,21 @@ class ReceiptOut(BaseModel):
 
 
 def compute_fingerprint(
-    merchant_name: str, purchase_date: date, total_cents: int,
-    receipt_number: str, card_last4: str | None,
+    merchant_name: str,
+    purchase_date: date,
+    total_cents: int,
+    receipt_number: str,
+    card_last4: str | None,
 ) -> str:
-    normalized = "|".join([
-        merchant_name.strip().lower(),
-        purchase_date.isoformat(),
-        str(total_cents),
-        receipt_number.strip().lower(),
-        (card_last4 or "").strip(),
-    ])
+    normalized = "|".join(
+        [
+            merchant_name.strip().lower(),
+            purchase_date.isoformat(),
+            str(total_cents),
+            receipt_number.strip().lower(),
+            (card_last4 or "").strip(),
+        ]
+    )
     return hashlib.sha256(normalized.encode()).hexdigest()
 
 
@@ -80,25 +85,29 @@ def submit_receipt(db: Session, user: User, body: ReceiptSubmitIn) -> Receipt:
         raise ValidationError("Invalid receipt number.")
 
     # Offer: lock the row for the budget check + update.
-    offer = db.execute(
-        select(Offer).where(Offer.id == body.offer_id).with_for_update()
-    ).scalar_one_or_none()
+    offer = db.execute(select(Offer).where(Offer.id == body.offer_id).with_for_update()).scalar_one_or_none()
     if offer is None:
         raise NotFound(message="Offer not found.")
 
     def reject(reason: str) -> Receipt:
         receipt = Receipt(
-            user_id=user.id, offer_id=offer.id,
+            user_id=user.id,
+            offer_id=offer.id,
             merchant_name=body.merchant_name,
             purchase_date=body.purchase_date,
             total_cents=body.total_cents,
             receipt_number=body.receipt_number.strip(),
             card_last4=body.card_last4,
             fingerprint=compute_fingerprint(
-                body.merchant_name, body.purchase_date, body.total_cents,
-                body.receipt_number, body.card_last4,
+                body.merchant_name,
+                body.purchase_date,
+                body.total_cents,
+                body.receipt_number,
+                body.card_last4,
             ),
-            status="REJECTED", cashback_cents=0, rejection_reason=reason,
+            status="REJECTED",
+            cashback_cents=0,
+            rejection_reason=reason,
             decided_at=now,
         )
         db.add(receipt)
@@ -109,7 +118,10 @@ def submit_receipt(db: Session, user: User, body: ReceiptSubmitIn) -> Receipt:
     # 1. rate limit (12 / user / rolling hour) — checked within the TX
     try:
         check_rate_limit(
-            db, action="receipt_submit", subject_kind="user", subject_id=str(user.id),
+            db,
+            action="receipt_submit",
+            subject_kind="user",
+            subject_id=str(user.id),
             limit=settings.receipt_submit_rate_limit,
             window_seconds=settings.receipt_submit_window_seconds,
             error_factory=lambda wait: RateLimited("Too many receipt submissions.", retry_after_seconds=wait),
@@ -131,23 +143,28 @@ def submit_receipt(db: Session, user: User, body: ReceiptSubmitIn) -> Receipt:
         return reject("below_minimum_purchase")
 
     fingerprint = compute_fingerprint(
-        body.merchant_name, body.purchase_date, body.total_cents,
-        body.receipt_number, body.card_last4,
+        body.merchant_name,
+        body.purchase_date,
+        body.total_cents,
+        body.receipt_number,
+        body.card_last4,
     )
-    dup = db.scalar(
-        select(Receipt.id).where(
-            Receipt.fingerprint == fingerprint, Receipt.status != "REJECTED"
-        ).limit(1)
-    )
+    dup = db.scalar(select(Receipt.id).where(Receipt.fingerprint == fingerprint, Receipt.status != "REJECTED").limit(1))
     if dup is not None:
         return reject("duplicate_receipt")
 
-    claim_count = db.scalar(
-        select(text("count(*)")).select_from(Receipt).where(
-            Receipt.user_id == user.id, Receipt.offer_id == offer.id,
-            Receipt.status.in_(["APPROVED", "PAID"]),
+    claim_count = (
+        db.scalar(
+            select(text("count(*)"))
+            .select_from(Receipt)
+            .where(
+                Receipt.user_id == user.id,
+                Receipt.offer_id == offer.id,
+                Receipt.status.in_(["APPROVED", "PAID"]),
+            )
         )
-    ) or 0
+        or 0
+    )
     if claim_count >= offer.per_user_limit:
         return reject("user_limit_reached")
 
@@ -157,22 +174,27 @@ def submit_receipt(db: Session, user: User, body: ReceiptSubmitIn) -> Receipt:
     # 3. approve: budget consumption + receipt + wallet credit + notification
     offer.spent_cents += offer.cashback_cents
     receipt = Receipt(
-        user_id=user.id, offer_id=offer.id,
+        user_id=user.id,
+        offer_id=offer.id,
         merchant_name=body.merchant_name,
         purchase_date=body.purchase_date,
         total_cents=body.total_cents,
         receipt_number=body.receipt_number.strip(),
         card_last4=body.card_last4,
         fingerprint=fingerprint,
-        status="APPROVED", cashback_cents=offer.cashback_cents, decided_at=now,
+        status="APPROVED",
+        cashback_cents=offer.cashback_cents,
+        decided_at=now,
     )
     db.add(receipt)
     db.flush()
 
     db.add(
         WalletLedger(
-            user_id=user.id, entry_type="RECEIPT_CASHBACK",
-            amount_cents=offer.cashback_cents, source_id=receipt.id,
+            user_id=user.id,
+            entry_type="RECEIPT_CASHBACK",
+            amount_cents=offer.cashback_cents,
+            source_id=receipt.id,
             reference_key=f"receipt:{receipt.id}",
             description=f"{offer.merchant_name} cashback",
         )
@@ -193,17 +215,23 @@ def submit_receipt(db: Session, user: User, body: ReceiptSubmitIn) -> Receipt:
 def _friendly_duplicate(db: Session, user: User, offer: Offer, body: ReceiptSubmitIn) -> Receipt:
     """After a rollback from a fingerprint race, write the REJECTED duplicate row."""
     receipt = Receipt(
-        user_id=user.id, offer_id=offer.id,
+        user_id=user.id,
+        offer_id=offer.id,
         merchant_name=body.merchant_name,
         purchase_date=body.purchase_date,
         total_cents=body.total_cents,
         receipt_number=body.receipt_number.strip(),
         card_last4=body.card_last4,
         fingerprint=compute_fingerprint(
-            body.merchant_name, body.purchase_date, body.total_cents,
-            body.receipt_number, body.card_last4,
-        ) + ":dup",
-        status="REJECTED", cashback_cents=0,
+            body.merchant_name,
+            body.purchase_date,
+            body.total_cents,
+            body.receipt_number,
+            body.card_last4,
+        )
+        + ":dup",
+        status="REJECTED",
+        cashback_cents=0,
         rejection_reason="duplicate_receipt",
         decided_at=datetime.now(UTC),
     )
@@ -219,17 +247,16 @@ def _notify(db: Session, user: User, receipt: Receipt) -> None:
     kind = "RECEIPT_APPROVED" if receipt.status == "APPROVED" else "RECEIPT_REJECTED"
     db.add(
         Notification(
-            user_id=user.id, kind=kind, receipt_id=receipt.id,
-            merchant_name=receipt.merchant_name, cashback_cents=receipt.cashback_cents,
+            user_id=user.id,
+            kind=kind,
+            receipt_id=receipt.id,
+            merchant_name=receipt.merchant_name,
+            cashback_cents=receipt.cashback_cents,
         )
     )
 
 
-def list_receipts(
-    db: Session, user: User, *, page: int, page_size: int, status: str | None
-) -> dict:
-    from sqlalchemy import func
-
+def list_receipts(db: Session, user: User, *, page: int, page_size: int, status: str | None) -> dict:
     stmt = select(Receipt).where(Receipt.user_id == user.id)
     if status:
         stmt = stmt.where(Receipt.status == status)
@@ -240,9 +267,7 @@ def list_receipts(
 
 
 def get_receipt(db: Session, user: User, receipt_id: uuid.UUID) -> Receipt:
-    receipt = db.scalar(
-        select(Receipt).where(Receipt.id == receipt_id, Receipt.user_id == user.id)
-    )
+    receipt = db.scalar(select(Receipt).where(Receipt.id == receipt_id, Receipt.user_id == user.id))
     if receipt is None:
         raise NotFound()
     return receipt

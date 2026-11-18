@@ -1,8 +1,7 @@
-import uuid
-from datetime import UTC, datetime, timedelta
-
 import hashlib
 import secrets
+import uuid
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from argon2 import PasswordHasher
@@ -59,9 +58,7 @@ def create_access_token_with_session(user_id: str, account_type: str, session_id
 
 def verify_access_token(token: str) -> dict:
     try:
-        payload = jwt.decode(
-            token, _settings.jwt_secret, algorithms=[_settings.jwt_algorithm]
-        )
+        payload = jwt.decode(token, _settings.jwt_secret, algorithms=[_settings.jwt_algorithm])
     except jwt.PyJWTError as exc:
         raise InvalidCredentials() from exc
     if payload.get("typ") != "access":

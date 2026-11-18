@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.orm import Session
 
 from src.auth.dependencies import get_current_user
 from src.common.rate_limit import check_rate_limit
+from src.core.config import get_settings
 from src.core.db import get_db
 from src.core.errors import ValidationError
 from src.db.models import User
 from src.users import service
 from src.users.schemas import ProfileOut, ProfileUpdateIn
-from src.core.config import get_settings
 
 router = APIRouter(tags=["me"])
 
@@ -57,14 +57,16 @@ def upload_avatar(
     db: Session = Depends(get_db),
 ):
     check_rate_limit(
-        db, action="avatar_upload", subject_kind="user", subject_id=str(user.id),
-        limit=10, window_seconds=3600,
+        db,
+        action="avatar_upload",
+        subject_kind="user",
+        subject_id=str(user.id),
+        limit=10,
+        window_seconds=3600,
     )
     content = avatar.file.read(get_settings().avatar_max_bytes + 1)
     if len(content) > get_settings().avatar_max_bytes:
         raise ValidationError("Avatar exceeds the 2 MB size limit.")
-    path = service.save_avatar(db, user, avatar, content)
+    service.save_avatar(db, user, avatar, content)
     db.commit()
     return user
-
-

@@ -3,8 +3,10 @@
 The money loop (receipt -> ledger -> wallet -> payout) is exercised here
 because submit_receipt performs all of it in one transaction.
 """
+
 from __future__ import annotations
 
+import uuid
 import uuid as _uuid
 
 
@@ -111,7 +113,6 @@ def test_budget_tracking_and_exhaustion(client, shopper, retailer):
     assert made.status_code == 201
     tiny = made.json()
 
-    h = shopper["headers"]
     b1 = _submit(client, shopper, tiny, n=_rn("INV"), total=10000).json()
     assert b1["status"] == "APPROVED", b1.get("rejection_reason")
     assert _submit(client, shopper, tiny, n=_rn("INV"), total=10000).json()["status"] == "APPROVED"
@@ -133,8 +134,6 @@ def test_receipt_list_is_owner_scoped(client, shopper, offer):
 
 
 def _signup_other(client):
-    import uuid
-
     email = f"other-{uuid.uuid4().hex[:8]}@test.vasoolkaro"
     r = client.post(
         "/api/v1/auth/signup",

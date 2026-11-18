@@ -1,13 +1,13 @@
 """Referrals, notifications, support requests, todos, profile management."""
+
 from __future__ import annotations
 
+import uuid
 import uuid as _uuid
 
 
 def _rn(base: str) -> str:
     return f"{base}-{_uuid.uuid4().hex[:8]}"
-
-import uuid
 
 
 def _signup(client, email=None):
@@ -76,9 +76,7 @@ def test_notifications_generated_and_marked_read(client, shopper, offer):
     notif = listed["items"][0]
     assert notif["kind"] == "RECEIPT_APPROVED"
 
-    marked = client.patch(
-        "/api/v1/notifications/read", headers=shopper["headers"], json={"ids": [notif["id"]]}
-    )
+    marked = client.patch("/api/v1/notifications/read", headers=shopper["headers"], json={"ids": [notif["id"]]})
     assert marked.status_code in (200, 204)
     after = client.get("/api/v1/notifications", headers=shopper["headers"]).json()
     assert after["unread_count"] == 0
@@ -125,9 +123,7 @@ def test_todos_crud(client, shopper):
     todo = made.json()
     listed = client.get("/api/v1/todos", headers=shopper["headers"])
     assert len(listed.json()["items"]) == 1
-    patched = client.patch(
-        f"/api/v1/todos/{todo['id']}", headers=shopper["headers"], json={"completed": True}
-    )
+    patched = client.patch(f"/api/v1/todos/{todo['id']}", headers=shopper["headers"], json={"completed": True})
     assert patched.status_code == 200
     assert patched.json()["completed"] is True
     gone = client.delete(f"/api/v1/todos/{todo['id']}", headers=shopper["headers"])
