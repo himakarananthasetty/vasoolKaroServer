@@ -1,6 +1,7 @@
 """
 
 import uuidWallet: balance semantics, ledger, payout request rules and idempotency."""
+
 from __future__ import annotations
 
 import uuid as _uuid

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.core.errors import NotFound, ValidationError
+from src.core.errors import ValidationError
 from src.db.models import SupportRequest, User
 
 TOPICS = ("ACCOUNT", "CASHBACK", "OFFERS", "OTHER")
@@ -49,11 +49,7 @@ def create_request(db: Session, user: User, topic: str, message: str) -> Support
 
 
 def list_requests(db: Session, user: User, *, page: int, page_size: int) -> dict:
-    stmt = (
-        select(SupportRequest)
-        .where(SupportRequest.user_id == user.id)
-        .order_by(SupportRequest.created_at.desc())
-    )
+    stmt = select(SupportRequest).where(SupportRequest.user_id == user.id).order_by(SupportRequest.created_at.desc())
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).all()
     return {"items": rows, "page": page, "page_size": page_size, "total": total}

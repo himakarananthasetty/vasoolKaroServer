@@ -28,17 +28,16 @@ class MarkReadIn(BaseModel):
 
 
 def list_notifications(db: Session, user: User, *, page: int, page_size: int) -> dict:
-    stmt = (
-        select(Notification)
-        .where(Notification.user_id == user.id)
-        .order_by(Notification.created_at.desc())
-    )
+    stmt = select(Notification).where(Notification.user_id == user.id).order_by(Notification.created_at.desc())
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-    unread = db.scalar(
-        select(func.count()).select_from(Notification).where(
-            Notification.user_id == user.id, Notification.read_at.is_(None)
+    unread = (
+        db.scalar(
+            select(func.count())
+            .select_from(Notification)
+            .where(Notification.user_id == user.id, Notification.read_at.is_(None))
         )
-    ) or 0
+        or 0
+    )
     rows = db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).all()
     return {"items": rows, "page": page, "page_size": page_size, "total": total, "unread_count": unread}
 
@@ -53,7 +52,7 @@ def mark_read(db: Session, user: User, ids: list[uuid.UUID]) -> int:
         )
         .values(read_at=datetime.now(UTC))
     )
-    return res.rowcount or 0
+    return int(res.rowcount or 0)  # type: ignore[attr-defined]
 
 
 class PushSubscriptionIn(BaseModel):
@@ -71,9 +70,7 @@ class PushSubscriptionIn(BaseModel):
 def register_push(db: Session, user: User, body: PushSubscriptionIn) -> None:
     if not body.endpoint.startswith("https://"):
         raise ValidationError("endpoint must be HTTPS")
-    existing = db.scalar(
-        select(PushSubscription).where(PushSubscription.endpoint == body.endpoint)
-    )
+    existing = db.scalar(select(PushSubscription).where(PushSubscription.endpoint == body.endpoint))
     if existing is not None:
         existing.user_id = user.id
         existing.p256dh = body.p256dh
@@ -81,19 +78,17 @@ def register_push(db: Session, user: User, body: PushSubscriptionIn) -> None:
     else:
         db.add(
             PushSubscription(
-                user_id=user.id, endpoint=body.endpoint,
-                p256dh=body.p256dh, auth_key=body.auth_key,
+                user_id=user.id,
+                endpoint=body.endpoint,
+                p256dh=body.p256dh,
+                auth_key=body.auth_key,
             )
         )
     db.flush()
 
 
 def delete_push(db: Session, user: User, endpoint: str) -> None:
-    sub = db.scalar(
-        select(PushSubscription).where(
-            PushSubscription.endpoint == endpoint, PushSubscription.user_id == user.id
-        )
-    )
+    sub = db.scalar(select(PushSubscription).where(PushSubscription.endpoint == endpoint, PushSubscription.user_id == user.id))
     if sub is None:
         raise NotFound()
     db.delete(sub)

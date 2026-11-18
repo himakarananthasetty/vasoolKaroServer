@@ -22,7 +22,9 @@ def list_requests(
     result = service.list_requests(db, user, page=page, page_size=page_size)
     return {
         "items": [service.SupportOut.model_validate(r) for r in result["items"]],
-        "page": result["page"], "page_size": result["page_size"], "total": result["total"],
+        "page": result["page"],
+        "page_size": result["page_size"],
+        "total": result["total"],
     }
 
 

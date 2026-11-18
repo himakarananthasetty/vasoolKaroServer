@@ -2,6 +2,7 @@
 
 Envelope: {"error": {"code": ..., "message": ..., ...extras}}
 """
+
 from __future__ import annotations
 
 
@@ -17,7 +18,7 @@ class ApiError(Exception):
 
     def to_payload(self) -> dict:
         payload = {"error": {"code": self.code, "message": self.message}}
-        payload["error"].update(self.extra)
+        payload["error"].update(self.extra)  # type: ignore[arg-type]
         return payload
 
 

@@ -1,4 +1,5 @@
 """Auth dependencies: resolve current user / roles from the bearer token."""
+
 from __future__ import annotations
 
 import uuid
@@ -38,15 +39,12 @@ def get_current_user(
 
 
 def require_roles(*allowed: str):
-    def checker(
-        user: User = Depends(get_current_user), db: Session = Depends(get_db)
-    ) -> User:
-        roles = db.scalars(
-            select(UserRole.role).where(UserRole.user_id == user.id)
-        ).all()
+    def checker(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
+        roles = db.scalars(select(UserRole.role).where(UserRole.user_id == user.id)).all()
         if not any(r in allowed for r in roles):
             raise Forbidden()
         return user
+
     return checker
 
 

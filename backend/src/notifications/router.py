@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import uuid
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from src.auth.dependencies import get_current_user
 from src.core.db import get_db
+from src.core.errors import ValidationError
 from src.db.models import User
 from src.notifications import service
 from src.notifications.service import MarkReadIn, PushSubscriptionIn
@@ -24,8 +23,10 @@ def list_notifications(
     result = service.list_notifications(db, user, page=page, page_size=page_size)
     return {
         "items": [service.NotificationOut.model_validate(r) for r in result["items"]],
-        "page": result["page"], "page_size": result["page_size"],
-        "total": result["total"], "unread_count": result["unread_count"],
+        "page": result["page"],
+        "page_size": result["page_size"],
+        "total": result["total"],
+        "unread_count": result["unread_count"],
     }
 
 
@@ -55,7 +56,6 @@ def delete_push(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from src.core.errors import ValidationError
     raise ValidationError("Endpoint path is required: use the endpoint query parameter.")
 
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -26,9 +25,7 @@ def list_offers(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return service.list_public_offers(
-        db, page=page, page_size=page_size, category=category, q=q, sort=sort
-    )
+    return service.list_public_offers(db, page=page, page_size=page_size, category=category, q=q, sort=sort)
 
 
 @router.get("/offers/{offer_id}")

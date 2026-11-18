@@ -3,29 +3,24 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.core.errors import NotFound, ValidationError
-from src.db.models import PushSubscription, User
+from src.core.errors import NotFound
+from src.db.models import Notification, PushSubscription
 
 
 def dispatch_notification_push(db: Session, notification_id: uuid.UUID, *, sender) -> dict:
     """Send Web Push for one notification. `sender` is an injectable callable
     (subscription, payload) -> status_code, so tests and VAPID-less dev run the
     same code path with a no-op adapter."""
-    notification = db.get(Notification := __import__(
-        "src.db.models", fromlist=["Notification"]
-    ).Notification, notification_id)
+    notification = db.get(Notification, notification_id)
     if notification is None:
         raise NotFound()
     if notification.pushed_at is not None:
         return {"sent": 0, "removed": 0, "failed": 0, "skipped": True}
 
-    subs = db.scalars(
-        select(PushSubscription).where(PushSubscription.user_id == notification.user_id)
-    ).all()
+    subs = db.scalars(select(PushSubscription).where(PushSubscription.user_id == notification.user_id)).all()
 
     titles = {
         "RECEIPT_APPROVED": "Receipt approved",

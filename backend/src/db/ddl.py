@@ -1,5 +1,6 @@
 """Emit PostgreSQL DDL (enums, tables, indexes) from the models, for the
 initial Alembic migration and for verifying compilation."""
+
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateIndex, CreateTable
 
@@ -23,10 +24,7 @@ def enum_ddl() -> list[str]:
     out = []
     for name, values in ENUMS.items():
         vals = ", ".join(f"'{v}'" for v in values)
-        out.append(
-            f"DO $$ BEGIN CREATE TYPE {name} AS ENUM ({vals}); "
-            f"EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
-        )
+        out.append(f"DO $$ BEGIN CREATE TYPE {name} AS ENUM ({vals}); EXCEPTION WHEN duplicate_object THEN NULL; END $$;")
     return out
 
 

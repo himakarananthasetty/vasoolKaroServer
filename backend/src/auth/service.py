@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import select, text, update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.auth.schemas import ProfileOut
 from src.core.config import get_settings
 from src.core.errors import (
+    BusinessNameRequired,
     EmailAlreadyRegistered,
     InvalidCredentials,
     MinimumAge,
-    RateLimited,
     Unauthorized,
     WeakPassword,
 )
@@ -24,7 +24,8 @@ from src.core.security import (
     new_refresh_token,
     verify_password,
 )
-from src.db.models import PasswordResetToken, Session as UserSession, User, UserRole
+from src.db.models import PasswordResetToken, User, UserRole
+from src.db.models import Session as UserSession
 
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
@@ -38,7 +39,7 @@ def generate_referral_code(db: Session) -> str:
     raise RuntimeError("could not generate referral code")
 
 
-def _age_ok(dob: datetime.date | None) -> bool:  # type: ignore[name-defined]
+def _age_ok(dob: date | None) -> bool:
     if dob is None:
         return True
     today = datetime.now(UTC).date()
@@ -69,7 +70,6 @@ def register_user(
     if len(password) < 8:
         raise WeakPassword()
     if account_type == "retailer" and not (business_name and 2 <= len(business_name.strip()) <= 80):
-        from src.core.errors import BusinessNameRequired
         raise BusinessNameRequired()
     if not _age_ok(date_of_birth):
         raise MinimumAge()
@@ -113,7 +113,8 @@ def _create_session(db: Session, user: User) -> UserSession:
 
 
 def _raw_refresh_of(session: UserSession) -> str:
-    return session.__dict__.get("_raw_token", "")
+    raw: str = session.__dict__.get("_raw_token", "")
+    return raw
 
 
 def authenticate(db: Session, email: str, password: str) -> User:
@@ -136,11 +137,7 @@ def login(db: Session, email: str, password: str) -> tuple[User, UserSession, st
 
 def rotate_refresh_token(db: Session, raw_token: str) -> tuple[User, UserSession, str]:
     token_hash = hash_token(raw_token)
-    session = db.scalar(
-        select(UserSession).where(
-            UserSession.token_hash == token_hash, UserSession.revoked_at.is_(None)
-        )
-    )
+    session = db.scalar(select(UserSession).where(UserSession.token_hash == token_hash, UserSession.revoked_at.is_(None)))
     if session is None or session.expires_at < datetime.now(UTC):
         if session is not None:
             session.revoked_at = datetime.now(UTC)
@@ -172,7 +169,7 @@ def revoke_all_other_sessions(db: Session, user_id: uuid.UUID, keep_session_id: 
         )
         .values(revoked_at=datetime.now(UTC))
     )
-    return res.rowcount or 0
+    return int(res.rowcount or 0)  # type: ignore[attr-defined]
 
 
 def revoke_all_sessions(db: Session, user_id: uuid.UUID) -> None:

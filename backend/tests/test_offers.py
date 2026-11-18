@@ -1,5 +1,9 @@
 """Offers: browsing, retailer CRUD, role authorization, saved offers."""
+
 from __future__ import annotations
+
+from src.core.db import SessionLocal
+from src.db.models import Offer
 
 
 def test_offer_create_requires_retailer_role(client, shopper):
@@ -74,8 +78,6 @@ def test_retailer_create_list_update_offer(client, retailer):
 
 def test_budget_cannot_drop_below_spent(client, retailer, offer):
     # offer has spent_cents=0 here; simulate committed spend directly
-    from src.core.db import SessionLocal
-    from src.db.models import Offer
     with SessionLocal() as db:
         row = db.get(Offer, offer["id"])
         row.spent_cents = 500
@@ -107,19 +109,14 @@ def test_saved_offers_flow(client, shopper, offer):
     assert save.status_code == 201
 
     # idempotent re-save
-    assert client.post("/api/v1/saved-offers", headers=shopper["headers"], json={"offer_id": offer["id"]}).status_code in (200, 201)
+    resp = client.post("/api/v1/saved-offers", headers=shopper["headers"], json={"offer_id": offer["id"]})
+    assert resp.status_code in (200, 201)
 
     listed = client.get("/api/v1/saved-offers", headers=shopper["headers"])
     assert listed.status_code == 200
-    assert any(
-        item["offer"] and item["offer"]["id"] == offer["id"]
-        for item in listed.json()["items"]
-    )
+    assert any(item["offer"] and item["offer"]["id"] == offer["id"] for item in listed.json()["items"])
 
     removed = client.delete(f"/api/v1/saved-offers/{offer['id']}", headers=shopper["headers"])
     assert removed.status_code in (200, 204)
     after = client.get("/api/v1/saved-offers", headers=shopper["headers"])
-    assert all(
-        not item["offer"] or item["offer"]["id"] != offer["id"]
-        for item in after.json()["items"]
-    )
+    assert all(not item["offer"] or item["offer"]["id"] != offer["id"] for item in after.json()["items"])
