@@ -7,7 +7,6 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from src.auth.schemas import ProfileOut
 from src.core.config import get_settings
 from src.core.errors import (
     BusinessNameRequired,
@@ -18,7 +17,6 @@ from src.core.errors import (
     WeakPassword,
 )
 from src.core.security import (
-    create_access_token,
     hash_password,
     hash_token,
     new_refresh_token,
@@ -44,17 +42,6 @@ def _age_ok(dob: date | None) -> bool:
         return True
     today = datetime.now(UTC).date()
     return dob <= today - timedelta(days=13 * 365.2425)
-
-
-def _token_payload(user: User, session: UserSession) -> dict:
-    access, ttl = create_access_token(str(user.id), user.account_type)
-    return {
-        "access_token": access,
-        "refresh_token": session.token_hash,  # replaced below by raw token
-        "token_type": "bearer",
-        "expires_in": ttl,
-        "user": ProfileOut.model_validate(user).model_dump(mode="json"),
-    }
 
 
 def register_user(

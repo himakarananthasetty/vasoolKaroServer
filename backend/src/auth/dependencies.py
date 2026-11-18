@@ -37,6 +37,13 @@ def get_current_user(
         raise InvalidCredentials()
     if user.deactivated_at is not None:
         raise Forbidden("Account is deactivated.")
+    # Access tokens carry the issuing session id; logout/other-session revocation
+    # must cut off live access tokens too, not just the refresh token.
+    sid = payload.get("sid")
+    if sid is not None:
+        session = db.get(UserSession, uuid.UUID(sid))
+        if session is None or session.user_id != user.id or session.revoked_at is not None:
+            raise Unauthorized()
     return user
 
 

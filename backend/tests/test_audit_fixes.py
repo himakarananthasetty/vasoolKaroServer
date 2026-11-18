@@ -245,3 +245,178 @@ def test_avatar_delete(client, shopper):
     assert gone.status_code == 204
     got = client.get("/api/v1/me/avatar", headers=shopper["headers"])
     assert got.status_code == 404
+
+
+def _magic_png() -> bytes:
+    return b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+
+def _fake_png() -> bytes:
+    return b"GIF89a" + b"\x00" * 32
+
+
+# --- Session-bound access tokens -------------------------------------------------
+
+
+def test_access_token_dies_with_session(client):
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from src.core.db import SessionLocal  # noqa: PLC0415
+    from src.db.models import Session as UserSession  # noqa: PLC0415
+
+    shopper = _signup(client)
+    assert client.get("/api/v1/me", headers=shopper["headers"]).status_code == 200
+    with SessionLocal() as db:
+        db.query(UserSession).filter(UserSession.user_id == shopper["user"]["id"]).update({"revoked_at": datetime.now(UTC)})
+        db.commit()
+    assert client.get("/api/v1/me", headers=shopper["headers"]).status_code == 401
+
+
+# --- Avatar magic-byte validation -------------------------------------------------
+
+
+def test_avatar_rejects_non_image_bytes(client, shopper):
+    up = client.put("/api/v1/me/avatar", headers=shopper["headers"], files={"avatar": ("a.png", _fake_png(), "image/png")})
+    assert up.status_code == 400
+    assert up.json()["error"]["code"] == "invalid_input"
+
+
+def test_avatar_accepts_real_png(client, shopper):
+    up = client.put("/api/v1/me/avatar", headers=shopper["headers"], files={"avatar": ("a.png", _magic_png(), "image/png")})
+    assert up.status_code == 200, up.json()
+
+
+# --- Unified error envelope -------------------------------------------------------
+
+
+def test_validation_errors_use_error_envelope(client, shopper):
+    r = client.post("/api/v1/claims/receipts", headers=shopper["headers"], json={})
+    assert r.status_code == 422
+    body = r.json()
+    assert "error" in body and body["error"]["code"] == "invalid_input"
+
+
+def test_http_404_uses_error_envelope(client, shopper):
+    r = client.get("/api/v1/offers/00000000-0000-0000-0000-000000000000", headers=shopper["headers"])
+    assert r.status_code == 404
+    body = r.json()
+    assert "error" in body and "code" in body["error"]
+
+
+# --- Admin PII read audit ---------------------------------------------------------
+
+
+def test_admin_pii_reads_are_audited(client):
+    from src.core.db import SessionLocal  # noqa: PLC0415
+    from src.db.models import AuditLog  # noqa: PLC0415
+
+    admin = _admin_signup(client)
+    shopper = _signup(client)
+    client.get("/api/v1/admin/customers", headers=admin["headers"])
+    client.get(f"/api/v1/admin/customers/{shopper['user']['id']}/transactions", headers=admin["headers"])
+    with SessionLocal() as db:
+        actions = [row[0] for row in db.query(AuditLog.action).filter(AuditLog.action.like("customers.%")).all()]
+    assert "customers.list" in actions
+    assert "customers.transactions" in actions
+
+
+# --- High-value receipts flagged for review ---------------------------------------
+
+
+def _review_setup(client):
+    admin = _admin_signup(client)
+    shopper = _signup(client)
+    retailer = _signup(client, email=f"retailer-{uuid.uuid4().hex[:8]}@test.vasoolkaro")
+    from src.core.db import SessionLocal  # noqa: PLC0415
+
+    with SessionLocal() as sess:
+        sess.add(UserRole(user_id=retailer["user"]["id"], role="retailer"))
+        sess.commit()
+    o = client.post(
+        "/api/v1/retailer/offers",
+        headers=retailer["headers"],
+        json={
+            "merchant_name": "ReviewShop",
+            "title": "Review Offer",
+            "description": "d",
+            "category": "grocery",
+            "cashback_cents": 500,
+            "budget_cents": 100000,
+            "starts_at": "2026-01-01T00:00:00Z",
+            "ends_at": "2027-01-01T00:00:00Z",
+        },
+    )
+    assert o.status_code == 201, o.text
+    return admin, shopper, o.json()["id"]
+
+
+def test_high_value_receipt_goes_to_review_and_admin_approves(client):
+    admin, shopper, oid = _review_setup(client)
+    r = client.post(
+        "/api/v1/claims/receipts",
+        headers=shopper["headers"],
+        json={
+            "offer_id": oid,
+            "merchant_name": "ReviewShop",
+            "purchase_date": "2026-06-01",
+            "total_cents": 600000,
+            "receipt_number": _rn("RV"),
+        },
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["status"] == "REVIEWING"
+
+    q = client.get("/api/v1/admin/receipts", headers=admin["headers"])
+    assert q.status_code == 200
+    assert any(item["id"] == body["id"] for item in q.json()["items"])
+
+    d = client.post(
+        f"/api/v1/admin/receipts/{body['id']}/review",
+        headers=admin["headers"],
+        json={"approve": True},
+    )
+    assert d.status_code == 200, d.text
+    assert d.json()["status"] == "APPROVED"
+
+    b = client.get("/api/v1/wallet/balance", headers=shopper["headers"])
+    assert b.json()["available_cents"] == 500
+
+
+def test_review_rejection_requires_reason_and_refunds_budget(client):
+    from src.core.db import SessionLocal  # noqa: PLC0415
+    from src.db.models import Offer  # noqa: PLC0415
+
+    admin, shopper, oid = _review_setup(client)
+    r = client.post(
+        "/api/v1/claims/receipts",
+        headers=shopper["headers"],
+        json={
+            "offer_id": oid,
+            "merchant_name": "ReviewShop",
+            "purchase_date": "2026-06-01",
+            "total_cents": 600000,
+            "receipt_number": _rn("RX"),
+        },
+    )
+    rid = r.json()["id"]
+
+    no_reason = client.post(
+        f"/api/v1/admin/receipts/{rid}/review",
+        headers=admin["headers"],
+        json={"approve": False},
+    )
+    assert no_reason.status_code == 400
+
+    d = client.post(
+        f"/api/v1/admin/receipts/{rid}/review",
+        headers=admin["headers"],
+        json={"approve": False, "reason": "suspected fraud"},
+    )
+    assert d.status_code == 200
+    assert d.json()["status"] == "REJECTED"
+
+    with SessionLocal() as db:
+        assert db.get(Offer, oid).spent_cents == 0
+    b = client.get("/api/v1/wallet/balance", headers=shopper["headers"])
+    assert b.json()["available_cents"] == 0
