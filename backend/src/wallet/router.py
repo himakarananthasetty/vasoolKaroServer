@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy.orm import Session
 
 from src.auth.dependencies import get_current_user
@@ -38,10 +38,11 @@ def ledger(
 @router.post("/payouts", response_model=service.PayoutOut, status_code=201)
 def request_payout(
     body: PayoutCreateIn,
+    idempotency_key: str = Header(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9._-]+$"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    payout = service.request_payout(db, user, body)
+    payout = service.request_payout(db, user, body, idempotency_key=idempotency_key)
     db.commit()
     return payout
 
