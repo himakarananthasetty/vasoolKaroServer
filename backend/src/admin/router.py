@@ -10,8 +10,8 @@ from src.core.db import get_db
 from src.db.models import User
 from src.admin import service
 from src.admin.service import CancelPayoutIn, CompletePayoutIn, SupportStatusIn
-from src.wallet.service import PayoutOut as PayoutOutLike
-from src.support.service import SupportOut as SupportOutLike
+from src.support.service import SupportOut
+from src.wallet.service import PayoutOut
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -56,7 +56,7 @@ def complete_payout(
 ):
     payout = service.complete_payout(db, user, payout_id, body.payment_reference)
     db.commit()
-    return service.PayoutOutLike.model_validate(payout)
+    return PayoutOut.model_validate(payout)
 
 
 @router.post("/payouts/{payout_id}/cancel")
@@ -68,7 +68,7 @@ def cancel_payout(
 ):
     payout = service.cancel_payout(db, user, payout_id, body.reason)
     db.commit()
-    return service.PayoutOutLike.model_validate(payout)
+    return PayoutOut.model_validate(payout)
 
 
 @router.get("/customers")
@@ -108,4 +108,4 @@ def support_status(
 ):
     row = service.update_support_status(db, user, request_id, body.status)
     db.commit()
-    return service.SupportOutLike.model_validate(row)
+    return SupportOut.model_validate(row)

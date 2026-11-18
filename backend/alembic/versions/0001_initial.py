@@ -21,7 +21,7 @@ def upgrade() -> None:
 DO $$ BEGIN CREATE TYPE user_account_type AS ENUM ('shopper', 'retailer'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 """)
         op.execute("""\
-DO $$ BEGIN CREATE TYPE admin_role AS ENUM ('admin', 'super_admin'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE user_role AS ENUM ('shopper', 'retailer', 'admin', 'super_admin'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 """)
         op.execute("""\
 DO $$ BEGIN CREATE TYPE receipt_status AS ENUM ('SUBMITTED', 'REVIEWING', 'APPROVED', 'PAID', 'REJECTED', 'REVERSED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -292,7 +292,7 @@ CREATE INDEX idx_todos_user_due ON todos (user_id, due_on);
         op.execute("""\
 CREATE TABLE user_roles (
 	user_id UUID NOT NULL, 
-	role admin_role NOT NULL, 
+	role user_role NOT NULL, 
 	created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
 	PRIMARY KEY (user_id, role), 
 	FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE

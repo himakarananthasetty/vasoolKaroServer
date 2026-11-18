@@ -98,7 +98,7 @@ class UserRole(Base, TimestampMixin):
         Uuid, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     role: Mapped[str] = mapped_column(
-        Enum("admin", "super_admin", name="admin_role"), primary_key=True
+        Enum("shopper", "retailer", "admin", "super_admin", name="user_role"), primary_key=True
     )
 
     user = relationship("User", back_populates="roles")
