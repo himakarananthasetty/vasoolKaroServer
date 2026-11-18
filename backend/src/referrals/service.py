@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -51,28 +51,16 @@ def redeem(db: Session, user: User, code: str) -> int:
     if existing_pair is not None:
         raise MutualReferral()
 
-    # Invite cap for the inviter.
-    invite_count = (
-        db.scalar(
-            select(text("count(*)"))
-            .select_from(ReferralBonus)
-            .where(ReferralBonus.user_id == user.id, ReferralBonus.reason == "INVITE_SENT")
-        )
-        or 0
-    )
-    _ = invite_count  # cap applies to how many invites this user has sent
-
+    # Invite cap: how many invites the inviter has sent (INVITE_SENT bonuses).
     sent_by_inviter = (
         db.scalar(
-            select(text("count(*)"))
+            select(func.count())
             .select_from(ReferralBonus)
-            .where(
-                ReferralBonus.user_id == user.id,
-            )
+            .where(ReferralBonus.user_id == inviter.id, ReferralBonus.reason == "INVITE_SENT")
         )
         or 0
     )
-    if sent_by_inviter >= settings.referral_invite_cap and False:
+    if sent_by_inviter >= settings.referral_invite_cap:
         raise ReferralLimit()
 
     # user redeems an inviter's code: user gets INVITE_ACCEPTED, inviter gets INVITE_SENT

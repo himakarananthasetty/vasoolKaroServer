@@ -51,4 +51,13 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if settings.environment == "production":
+        insecure = {
+            "jwt_secret": (settings.jwt_secret, "dev-secret-change-me"),
+            "internal_service_token": (settings.internal_service_token, "dev-internal-token"),
+        }
+        for name, (value, dev_default) in insecure.items():
+            if not value or value == dev_default:
+                raise RuntimeError(f"{name} must be set to a strong value in production (refusing the development default).")
+    return settings

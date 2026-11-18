@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import uuid
 from datetime import UTC, date, datetime
@@ -13,7 +14,9 @@ from sqlalchemy.orm import Session
 from src.common.rate_limit import check_rate_limit
 from src.core.config import get_settings
 from src.core.errors import NotFound, RateLimited, ValidationError
-from src.db.models import Notification, Offer, Receipt, User, WalletLedger
+from src.db.models import Notification, Offer, PushSubscription, Receipt, User, WalletLedger
+
+logger = logging.getLogger("vasoolkaro.claims")
 
 CARD_RE = re.compile(r"^[0-9]{4}$")
 
@@ -254,6 +257,40 @@ def _notify(db: Session, user: User, receipt: Receipt) -> None:
             cashback_cents=receipt.cashback_cents,
         )
     )
+    # Dispatch queued pushes for this user; failures must not break the claim TX.
+    try:
+        _dispatch_pending_push(db, user.id)
+    except Exception:  # noqa: BLE001
+        logger.warning("push dispatch failed for user %s", user.id, exc_info=True)
+
+
+def _dispatch_pending_push(db: Session, user_id: uuid.UUID) -> None:
+    """Best-effort inline push for unread notifications; pushed_at prevents re-sends."""
+    pending = db.scalars(
+        select(Notification).where(
+            Notification.user_id == user_id,
+            Notification.pushed_at.is_(None),
+        )
+    ).all()
+    if not pending:
+        return
+    subs = db.scalars(select(PushSubscription).where(PushSubscription.user_id == user_id)).all()
+    for n in pending:
+        n.pushed_at = datetime.now(UTC)  # mark attempted even if no subs / send fails
+    if not subs:
+        return
+    from src.internal.router import _web_push_sender  # noqa: PLC0415 (avoids import cycle)
+
+    for n in pending:
+        for sub in subs:
+            _web_push_sender(
+                sub,
+                {
+                    "title": "Receipt update",
+                    "body": f"{n.merchant_name}: {n.kind.lower().replace('_', ' ')}",
+                    "notification_id": str(n.id),
+                },
+            )
 
 
 def list_receipts(db: Session, user: User, *, page: int, page_size: int, status: str | None) -> dict:

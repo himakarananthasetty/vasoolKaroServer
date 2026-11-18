@@ -30,6 +30,10 @@ class SupportStatusIn(BaseModel):
     status: str = Field(pattern="^(OPEN|ANSWERED|CLOSED)$")
 
 
+class ReverseReceiptIn(BaseModel):
+    reason: str = Field(min_length=3, max_length=200)
+
+
 def _require_admin(db: Session, user: User, super_only: bool = False) -> str:
     roles = db.scalars(select(UserRole.role).where(UserRole.user_id == user.id)).all()
     allowed = SUPER_ONLY if super_only else ADMIN_LEVELS
@@ -269,6 +273,46 @@ def customer_transactions(db: Session, user_id: uuid.UUID) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def reverse_receipt_credit(db: Session, admin: User, receipt_id: uuid.UUID, reason: str) -> Receipt:
+    """§6.17: reverse an approved receipt's cashback with a compensating ledger row."""
+    receipt = db.get(Receipt, receipt_id)
+    if receipt is None:
+        raise NotFound()
+    if receipt.status not in ("APPROVED", "PAID"):
+        raise ValidationError("Only approved or paid receipts can be reversed.")
+    reason = reason.strip()
+    if not (3 <= len(reason) <= 200):
+        raise ValidationError("Reason must be 3-200 characters.")
+
+    original = db.scalar(
+        select(WalletLedger).where(WalletLedger.source_id == receipt.id, WalletLedger.entry_type == "RECEIPT_CASHBACK")
+    )
+    if original is None:
+        raise NotFound()
+
+    already = db.scalar(select(WalletLedger.id).where(WalletLedger.reversal_of == original.id).limit(1))
+    if already is not None:
+        raise ValidationError("Receipt has already been reversed.")
+
+    receipt.status = "REVERSED"
+    receipt.rejection_reason = reason
+
+    db.add(
+        WalletLedger(
+            user_id=receipt.user_id,
+            entry_type="REVERSAL",
+            amount_cents=-original.amount_cents,
+            source_id=receipt.id,
+            reversal_of=original.id,
+            reference_key=f"reversal:{receipt.id}",
+            description=f"Reversal: {reason[:180]}",
+        )
+    )
+    audit(db, admin, "receipt.reverse", "receipt", str(receipt.id), {"reason": reason, "amount_cents": original.amount_cents})
+    db.flush()
+    return receipt
 
 
 def update_support_status(db: Session, admin: User, request_id: uuid.UUID, status: str) -> SupportRequest:
