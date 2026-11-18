@@ -228,6 +228,7 @@ class Payout(Base, TimestampMixin):
     )
     payment_reference: Mapped[str | None] = mapped_column(String(64))
     note: Mapped[str | None] = mapped_column(String(200))
+    idempotency_key: Mapped[str | None] = mapped_column(String(64))
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -253,6 +254,7 @@ class Payout(Base, TimestampMixin):
             unique=True,
             postgresql_where=text("status = 'PAID'"),
         ),
+        UniqueConstraint("user_id", "idempotency_key", name="uq_payouts_idempotency"),
         Index("idx_payouts_user_requested", "user_id", "requested_at"),
         Index(
             "idx_payouts_open",

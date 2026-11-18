@@ -250,6 +250,8 @@ Available = sum of ledger rows not linked to a payout (existing `my_wallet_balan
 
 ### 5.3 `POST /wallet/payouts`
 
+Requires the `Idempotency-Key` header (8–64 characters, letters/digits/`.`/`_`/`-`). A network retry with the same key returns the original payout (`201`) instead of creating a second one; keys are scoped per user.
+
 Request:
 
 ```json
@@ -259,12 +261,12 @@ Request:
 `method` `UPI` (valid UPI id required) or `CASH` (`upi_id` must be omitted). Response `201`:
 
 ```json
-{ "id": "uuid", "method": "UPI", "amount_cents": 12500, "status": "REQUESTED", "requested_at": "..." }
+{ "id": "uuid", "method": "UPI", "amount_cents": 12500, "status": "REQUESTED", "idempotency_key": "...", "requested_at": "..." }
 ```
 
-Errors: `409 payout_already_requested`, `422 below_minimum` (500-cent minimum), `422 nothing_to_payout`.
+Errors: `422` for a missing/invalid idempotency key, `409 payout_already_requested`, `422 below_minimum` (500-cent minimum), `422 nothing_to_payout`.
 
-**Transaction logic:** advisory lock on the user (serializes concurrent requests, replacing the profile-row lock) → reject a second open payout (also guarded by the partial unique index) → select unlinked ledger rows `FOR UPDATE` → link them via `payout_entries` → amount = linked sum → insert payout. `204`-style errors for negative sums are impossible by ledger invariants.
+**Transaction logic:** replay lookup by `(user_id, idempotency_key)` → advisory lock on the user (serializes concurrent requests, replacing the profile-row lock) → reject a second open payout (also guarded by the partial unique index) → select unlinked ledger rows `FOR UPDATE` → link them via `payout_entries` → amount = linked sum → insert payout with the key. A concurrent same-key race is resolved by the `(user_id, idempotency_key)` unique index and replayed. `204`-style errors for negative sums are impossible by ledger invariants.
 
 ---
 

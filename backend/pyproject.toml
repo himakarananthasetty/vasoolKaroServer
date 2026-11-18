@@ -13,6 +13,7 @@ requires-python = ">=3.11"
 dependencies = [
     "aiomcache>=0.8.2",
     "aiosqlite>=0.21.0",
+    "argon2-cffi>=23.1.0",
     "alembic>=1.16.4",
     "anyio>=4.15.1",
     "asyncpg>=0.30.0",
@@ -27,6 +28,8 @@ dependencies = [
     "jinja2>=3.1.6",
     "pydantic>=2.10.6",
     "pydantic-settings>=2.14.2",
+    "psycopg[binary]>=3.2.0",
+    "pyjwt>=2.9.0",
     "pywebpush>=2.0.0",
     "redis>=6.1.0",
     "sqladmin>=0.28.0",

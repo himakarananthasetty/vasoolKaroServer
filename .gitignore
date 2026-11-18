@@ -94,6 +94,22 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
+# Runtime data written by the app/tests (never commit user uploads)
+backend/data/avatars/
+
+# Node dependencies (lockfiles stay tracked)
+node_modules/
+.npm/
+.yarn/
+.pnpm-store/
+
+# Node logs and build artifacts
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
+
 # Environments
 .env
 .venv

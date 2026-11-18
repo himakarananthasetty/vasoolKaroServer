@@ -6,6 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.core.config import get_settings
@@ -51,6 +52,7 @@ class PayoutOut(BaseModel):
     status: str
     payment_reference: str | None
     note: str | None
+    idempotency_key: str | None
     requested_at: datetime
     settled_at: datetime | None
 
@@ -88,8 +90,13 @@ def list_ledger(db: Session, user: User, *, page: int, page_size: int) -> dict:
     return {"items": rows, "page": page, "page_size": page_size, "total": total}
 
 
-def request_payout(db: Session, user: User, body: PayoutCreateIn) -> Payout:
+def request_payout(db: Session, user: User, body: PayoutCreateIn, *, idempotency_key: str) -> Payout:
     settings = get_settings()
+
+    # Replay: a retried request with the same key returns the original payout.
+    existing = db.scalar(select(Payout).where(Payout.user_id == user.id, Payout.idempotency_key == idempotency_key))
+    if existing is not None:
+        return existing
 
     upi_id = None
     if body.method == "UPI":
@@ -126,9 +133,24 @@ def request_payout(db: Session, user: User, body: PayoutCreateIn) -> Payout:
             raise NothingToPayout()
         raise BelowMinimum(f"Minimum payout is {settings.payout_minimum_cents} cents.")
 
-    payout = Payout(user_id=user.id, method=body.method, upi_id=upi_id, amount_cents=total)
+    payout = Payout(
+        user_id=user.id,
+        method=body.method,
+        upi_id=upi_id,
+        amount_cents=total,
+        idempotency_key=idempotency_key,
+    )
     db.add(payout)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # A concurrent request with the same key won the unique race: replay it.
+        db.rollback()
+        db.begin()
+        replay = db.scalar(select(Payout).where(Payout.user_id == user.id, Payout.idempotency_key == idempotency_key))
+        if replay is None:
+            raise PayoutAlreadyRequested()
+        return replay
     for row in unlinked:
         db.add(PayoutEntry(ledger_id=row.id, payout_id=payout.id))
     db.flush()

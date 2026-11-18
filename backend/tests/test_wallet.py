@@ -11,6 +11,13 @@ def _rn(base: str) -> str:
     return f"{base}-{_uuid.uuid4().hex[:8]}"
 
 
+def _pay(shopper, key: str | None = None) -> dict:
+    """Payout request headers; a unique idempotency key by default."""
+    headers = dict(shopper["headers"])
+    headers["Idempotency-Key"] = key or _rn("payout-key")
+    return headers
+
+
 def _fund_wallet(client, shopper, offer, times=1):
     for i in range(times):
         r = client.post(
@@ -36,7 +43,7 @@ def test_empty_wallet_balance(client, shopper):
 def test_balance_transitions_to_pending_on_payout(client, shopper, offer):
     _fund_wallet(client, shopper, offer, times=2)  # 2 x 5000
 
-    r = client.post("/api/v1/wallet/payouts", headers=shopper["headers"], json={"method": "UPI", "upi_id": "user@upi"})
+    r = client.post("/api/v1/wallet/payouts", headers=_pay(shopper), json={"method": "UPI", "upi_id": "user@upi"})
     assert r.status_code == 201
     payout = r.json()
     assert payout["status"] == "REQUESTED"
@@ -52,7 +59,7 @@ def test_payout_below_minimum_rejected(client, shopper, offer):
     _fund_wallet(client, shopper, offer, times=1)  # 5000 = minimum; try less
     # spend nothing: balance is exactly the minimum, so first payout is fine.
     # Make a wallet below the minimum by using an offer with 100 cashback.
-    r = client.post("/api/v1/wallet/payouts", headers=shopper["headers"], json={"method": "UPI", "upi_id": "user@upi"})
+    r = client.post("/api/v1/wallet/payouts", headers=_pay(shopper), json={"method": "UPI", "upi_id": "user@upi"})
     assert r.status_code == 201  # 5000 >= 500 minimum
 
 
@@ -82,23 +89,23 @@ def test_payout_minimum_enforced(client, shopper, retailer):
             "receipt_number": _rn("INV-MICRO"),
         },
     )
-    r = client.post("/api/v1/wallet/payouts", headers=shopper["headers"], json={"method": "UPI", "upi_id": "user@upi"})
+    r = client.post("/api/v1/wallet/payouts", headers=_pay(shopper), json={"method": "UPI", "upi_id": "user@upi"})
     assert r.status_code == 422
     assert r.json()["error"]["code"] in ("below_minimum", "nothing_to_payout")
 
 
 def test_one_open_payout_per_user(client, shopper, offer):
     _fund_wallet(client, shopper, offer, times=1)
-    first = client.post("/api/v1/wallet/payouts", headers=shopper["headers"], json={"method": "UPI", "upi_id": "user@upi"})
+    first = client.post("/api/v1/wallet/payouts", headers=_pay(shopper), json={"method": "UPI", "upi_id": "user@upi"})
     assert first.status_code == 201
-    second = client.post("/api/v1/wallet/payouts", headers=shopper["headers"], json={"method": "UPI", "upi_id": "user@upi"})
+    second = client.post("/api/v1/wallet/payouts", headers=_pay(shopper), json={"method": "UPI", "upi_id": "user@upi"})
     assert second.status_code in (409, 422)
     assert second.json()["error"]["code"] == "payout_already_requested"
 
 
 def test_upi_required_for_upi_method(client, shopper, offer):
     _fund_wallet(client, shopper, offer, times=1)
-    r = client.post("/api/v1/wallet/payouts", headers=shopper["headers"], json={"method": "UPI"})
+    r = client.post("/api/v1/wallet/payouts", headers=_pay(shopper), json={"method": "UPI"})
     assert r.status_code == 400
 
 
@@ -114,3 +121,51 @@ def test_ledger_lists_receipt_entries(client, shopper, offer):
 def test_payout_requires_auth(client):
     assert client.get("/api/v1/wallet/balance").status_code == 401
     assert client.post("/api/v1/wallet/payouts", json={"method": "UPI"}).status_code == 401
+
+
+def test_same_idempotency_key_returns_original_payout(client, shopper, offer):
+    _fund_wallet(client, shopper, offer, times=2)
+    key = _rn("idem-key")
+    body = {"method": "UPI", "upi_id": "user@upi"}
+
+    first = client.post("/api/v1/wallet/payouts", headers=_pay(shopper, key), json=body)
+    assert first.status_code == 201
+    replay = client.post("/api/v1/wallet/payouts", headers=_pay(shopper, key), json=body)
+    assert replay.status_code == 201
+    assert replay.json()["id"] == first.json()["id"]
+    assert replay.json()["amount_cents"] == first.json()["amount_cents"]
+
+    payouts = client.get("/api/v1/wallet/payouts", headers=shopper["headers"]).json()
+    assert payouts["total"] == 1
+    balance = client.get("/api/v1/wallet/balance", headers=shopper["headers"]).json()
+    assert balance["available_cents"] == 0
+    assert balance["pending_payout_cents"] == 10000
+
+
+def test_idempotency_key_is_required(client, shopper, offer):
+    _fund_wallet(client, shopper, offer, times=1)
+    r = client.post("/api/v1/wallet/payouts", headers=shopper["headers"], json={"method": "UPI", "upi_id": "user@upi"})
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "invalid_input"
+
+
+def test_different_key_after_settlement_creates_new_payout(client, shopper, offer):
+    """A retry with a new key after cancellation is a new request, not a replay."""
+    _fund_wallet(client, shopper, offer, times=2)
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from src.core.db import SessionLocal  # noqa: PLC0415
+    from src.db.models import Payout, PayoutEntry  # noqa: PLC0415
+
+    first = client.post("/api/v1/wallet/payouts", headers=_pay(shopper), json={"method": "UPI", "upi_id": "user@upi"}).json()
+    with SessionLocal() as db:
+        row = db.get(Payout, _uuid.UUID(first["id"]))
+        row.status = "CANCELLED"
+        row.note = "test cancel"
+        row.settled_at = datetime.now(UTC)
+        db.query(PayoutEntry).filter(PayoutEntry.payout_id == row.id).delete()
+        db.commit()
+
+    second = client.post("/api/v1/wallet/payouts", headers=_pay(shopper), json={"method": "UPI", "upi_id": "user@upi"})
+    assert second.status_code == 201
+    assert second.json()["id"] != first["id"]
