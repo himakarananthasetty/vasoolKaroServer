@@ -34,6 +34,7 @@ class Settings(BaseSettings):
 
     # Abuse controls
     receipt_submit_rate_limit: int = 12
+    receipt_review_threshold_cents: int = 500_000
     receipt_submit_window_seconds: int = 3600
     login_rate_limit: int = 10
     login_window_seconds: int = 900

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.cors import CORSMiddleware
 
 from src.admin.router import router as admin_router
@@ -47,6 +49,22 @@ def create_app() -> FastAPI:
     @app.exception_handler(ApiError)
     async def api_error_handler(request: Request, exc: ApiError):
         return JSONResponse(status_code=exc.status_code, content=exc.to_payload())
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        code = {401: "unauthorized", 403: "forbidden", 404: "not_found", 405: "method_not_allowed", 429: "rate_limited"}.get(
+            exc.status_code, "http_error"
+        )
+        return JSONResponse(status_code=exc.status_code, content={"error": {"code": code, "message": str(exc.detail)}})
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        first = exc.errors()[0] if exc.errors() else {}
+        loc = ".".join(str(part) for part in first.get("loc", []) if part != "body")
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "invalid_input", "message": f"Invalid request: {loc or 'body'}."}},
+        )
 
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(users_router, prefix="/api/v1")

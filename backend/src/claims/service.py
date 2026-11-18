@@ -174,7 +174,9 @@ def submit_receipt(db: Session, user: User, body: ReceiptSubmitIn) -> Receipt:
     if offer.reserved_cents + offer.spent_cents + offer.cashback_cents > offer.budget_cents:
         return reject("offer_budget_exhausted")
 
-    # 3. approve: budget consumption + receipt + wallet credit + notification
+    # 3. approve or flag for review: budget consumption + receipt + wallet credit
+    #    High-value receipts (>= flag threshold) go to REVIEWING; an admin decides.
+    needs_review = body.total_cents >= settings.receipt_review_threshold_cents
     offer.spent_cents += offer.cashback_cents
     receipt = Receipt(
         user_id=user.id,
@@ -185,24 +187,25 @@ def submit_receipt(db: Session, user: User, body: ReceiptSubmitIn) -> Receipt:
         receipt_number=body.receipt_number.strip(),
         card_last4=body.card_last4,
         fingerprint=fingerprint,
-        status="APPROVED",
+        status="REVIEWING" if needs_review else "APPROVED",
         cashback_cents=offer.cashback_cents,
-        decided_at=now,
+        decided_at=None if needs_review else now,
     )
     db.add(receipt)
     db.flush()
 
-    db.add(
-        WalletLedger(
-            user_id=user.id,
-            entry_type="RECEIPT_CASHBACK",
-            amount_cents=offer.cashback_cents,
-            source_id=receipt.id,
-            reference_key=f"receipt:{receipt.id}",
-            description=f"{offer.merchant_name} cashback",
+    if not needs_review:
+        db.add(
+            WalletLedger(
+                user_id=user.id,
+                entry_type="RECEIPT_CASHBACK",
+                amount_cents=offer.cashback_cents,
+                source_id=receipt.id,
+                reference_key=f"receipt:{receipt.id}",
+                description=f"{offer.merchant_name} cashback",
+            )
         )
-    )
-    _notify(db, user, receipt)
+        _notify(db, user, receipt)
 
     # Duplicate race (concurrent identical claim) → friendly rejection.
     try:

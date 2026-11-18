@@ -144,6 +144,17 @@ def delete_account(db: Session, user: User) -> None:
 ALLOWED_AVATAR_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 
 
+def _sniff_image_type(content: bytes) -> str | None:
+    """Return the real image type from magic bytes, ignoring the client-declared type."""
+    if content[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if content[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 def delete_avatar(db: Session, user: User) -> None:
     if not user.avatar_path:
         raise ValidationError("No avatar to remove.")
@@ -159,9 +170,10 @@ def save_avatar(db: Session, user: User, upload: UploadFile, content: bytes) -> 
     settings = get_settings()
     if len(content) > settings.avatar_max_bytes:
         raise ValidationError("Avatar exceeds the 2 MB size limit.")
-    ext = ALLOWED_AVATAR_TYPES.get(upload.content_type or "")
-    if ext is None:
-        raise ValidationError("Avatar must be JPEG, PNG, or WebP.")
+    sniffed = _sniff_image_type(content)
+    if sniffed is None or sniffed not in ALLOWED_AVATAR_TYPES:
+        raise ValidationError("Avatar must be a real JPEG, PNG, or WebP image.")
+    ext = ALLOWED_AVATAR_TYPES[sniffed]
     base = Path(settings.avatar_dir) / str(user.id)
     base.mkdir(parents=True, exist_ok=True)
     old = user.avatar_path

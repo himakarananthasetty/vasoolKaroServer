@@ -78,6 +78,8 @@ def customers(
     user: User = _super,
     db: Session = Depends(get_db),
 ):
+    service.audit(db, user, "customers.list", "user", "batch", {"page": page, "page_size": page_size})
+    db.commit()
     return service.customer_summary(db, page=page, page_size=page_size)
 
 
@@ -87,6 +89,8 @@ def customer_breakdown(
     user: User = _super,
     db: Session = Depends(get_db),
 ):
+    service.audit(db, user, "customers.merchant_breakdown", "user", str(user_id), {})
+    db.commit()
     return {"items": service.customer_merchant_breakdown(db, user_id)}
 
 
@@ -96,7 +100,30 @@ def customer_transactions(
     user: User = _super,
     db: Session = Depends(get_db),
 ):
+    service.audit(db, user, "customers.transactions", "user", str(user_id), {})
+    db.commit()
     return {"items": service.customer_transactions(db, user_id)}
+
+
+@router.get("/receipts", response_model=None)
+def list_review_queue(
+    status: str = Query(default="REVIEWING", pattern="^(REVIEWING|APPROVED|REJECTED|REVERSED)$"),
+    user: User = _admin,
+    db: Session = Depends(get_db),
+):
+    return {"items": service.review_queue(db, status)}
+
+
+@router.post("/receipts/{receipt_id}/review")
+def decide_receipt_review(
+    receipt_id: uuid.UUID,
+    body: service.ReviewDecisionIn,
+    user: User = _admin,
+    db: Session = Depends(get_db),
+):
+    receipt = service.decide_review(db, user, receipt_id, body.approve, body.reason)
+    db.commit()
+    return {"id": receipt.id, "status": receipt.status, "rejection_reason": receipt.rejection_reason}
 
 
 @router.post("/receipts/{receipt_id}/reverse")

@@ -30,6 +30,11 @@ class SupportStatusIn(BaseModel):
     status: str = Field(pattern="^(OPEN|ANSWERED|CLOSED)$")
 
 
+class ReviewDecisionIn(BaseModel):
+    approve: bool
+    reason: str | None = Field(default=None, max_length=200)
+
+
 class ReverseReceiptIn(BaseModel):
     reason: str = Field(min_length=3, max_length=200)
 
@@ -273,6 +278,62 @@ def customer_transactions(db: Session, user_id: uuid.UUID) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def review_queue(db: Session, status: str) -> list[dict]:
+    rows = db.scalars(select(Receipt).where(Receipt.status == status).order_by(Receipt.submitted_at.asc()).limit(200)).all()
+    return [
+        {
+            "id": r.id,
+            "user_id": r.user_id,
+            "offer_id": r.offer_id,
+            "merchant_name": r.merchant_name,
+            "purchase_date": r.purchase_date,
+            "total_cents": int(r.total_cents),
+            "cashback_cents": int(r.cashback_cents),
+            "status": r.status,
+            "submitted_at": r.submitted_at,
+        }
+        for r in rows
+    ]
+
+
+def decide_review(db: Session, admin: User, receipt_id: uuid.UUID, approve: bool, reason: str | None) -> Receipt:
+    """Resolve a REVIEWING receipt: approve (credit wallet) or reject."""
+    receipt = db.get(Receipt, receipt_id)
+    if receipt is None:
+        raise NotFound()
+    if receipt.status != "REVIEWING":
+        raise ValidationError("Only receipts under review can be decided.")
+    reason = (reason or "").strip()
+    if not approve and not (3 <= len(reason) <= 200):
+        raise ValidationError("A reason of 3-200 characters is required to reject.")
+
+    offer_row = db.get(Offer, receipt.offer_id) if receipt.offer_id else None
+    now = datetime.now(UTC)
+    if approve:
+        receipt.status = "APPROVED"
+        receipt.decided_at = now
+        db.add(
+            WalletLedger(
+                user_id=receipt.user_id,
+                entry_type="RECEIPT_CASHBACK",
+                amount_cents=receipt.cashback_cents,
+                source_id=receipt.id,
+                reference_key=f"receipt:{receipt.id}",
+                description=f"{receipt.merchant_name} cashback",
+            )
+        )
+        audit(db, admin, "receipt.review_approve", "receipt", str(receipt.id), {"amount_cents": receipt.cashback_cents})
+    else:
+        receipt.status = "REJECTED"
+        receipt.rejection_reason = reason
+        receipt.decided_at = now
+        if offer_row is not None:
+            offer_row.spent_cents = max(0, offer_row.spent_cents - receipt.cashback_cents)
+        audit(db, admin, "receipt.review_reject", "receipt", str(receipt.id), {"reason": reason})
+    db.flush()
+    return receipt
 
 
 def reverse_receipt_credit(db: Session, admin: User, receipt_id: uuid.UUID, reason: str) -> Receipt:
