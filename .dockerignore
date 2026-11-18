@@ -1,14 +1,60 @@
+# ============================================================
+# Docker build context exclusions
+# Keep source + manifests + uv.lock: the Dockerfile COPYs them.
+# ============================================================
+
+# Version control / CI metadata
 .git
+.gitignore
+.github
+
+# Python virtual environments and caches
 .venv
+**/.venv
+**/venv
 **/__pycache__
-**/*.pyc
+**/*.py[cod]
+**/*.so
 **/.pytest_cache
 **/.mypy_cache
 **/.ruff_cache
+**/.hypothesis
 **/*.egg-info
+**/.coverage
+**/.coverage.*
+**/htmlcov
+**/.tox
+**/.nox
+
+# Node: never send installed dependencies or build artifacts into the image
+**/node_modules/
+**/.npm/
+**/.yarn/
+**/.pnpm-store/
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
+**/*.tsbuildinfo
+
+# Runtime data and user uploads (written by the app/tests)
+backend/data/
+**/data/
+
+# Secrets and local config — never bake into an image
+.env
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+
+# Docs, generated sites and local orchestration files
 docs/
 site/
 nginx/
 docker-compose.yml
-.env
-**/.env
+
+# Editor / OS noise
+.idea
+.vscode
+**/.DS_Store
