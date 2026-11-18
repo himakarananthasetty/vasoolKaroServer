@@ -128,6 +128,8 @@ def delete_account(db: Session, user: User) -> None:
     db.query(PushSubscription).filter(PushSubscription.user_id == user.id).delete()
     db.query(SupportRequest).filter(SupportRequest.user_id == user.id).delete()
     db.query(UserSession).filter(UserSession.user_id == user.id).delete()
+    # Rejected receipts carry no financial history; approved/paid are retained (§16).
+    db.query(Receipt).filter(Receipt.user_id == user.id, Receipt.status == "REJECTED").delete()
 
     user.full_name = None
     user.phone_number = None
@@ -140,6 +142,17 @@ def delete_account(db: Session, user: User) -> None:
 
 
 ALLOWED_AVATAR_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+
+
+def delete_avatar(db: Session, user: User) -> None:
+    if not user.avatar_path:
+        raise ValidationError("No avatar to remove.")
+    try:
+        Path(user.avatar_path).unlink(missing_ok=True)
+    except OSError:
+        pass
+    user.avatar_path = None
+    db.flush()
 
 
 def save_avatar(db: Session, user: User, upload: UploadFile, content: bytes) -> str:

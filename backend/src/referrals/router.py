@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from src.auth.dependencies import get_current_user
+from src.auth.dependencies import client_ip, get_current_user
+from src.common.rate_limit import check_rate_limit
 from src.core.db import get_db
 from src.db.models import User
 from src.referrals import service
@@ -19,9 +20,18 @@ class RedeemIn(BaseModel):
 @router.post("/redeem")
 def redeem(
     body: RedeemIn,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    check_rate_limit(
+        db,
+        action="referral_redeem",
+        subject_kind="ip",
+        subject_id=client_ip(request),
+        limit=10,
+        window_seconds=3600,
+    )
     bonus = service.redeem(db, user, body.code)
     db.commit()
     return {"bonus_cents": bonus}

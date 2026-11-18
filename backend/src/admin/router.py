@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from src.admin import service
-from src.admin.service import CancelPayoutIn, CompletePayoutIn, SupportStatusIn
+from src.admin.service import CancelPayoutIn, CompletePayoutIn, ReverseReceiptIn, SupportStatusIn
 from src.auth.dependencies import require_roles
 from src.core.db import get_db
 from src.db.models import User
@@ -97,6 +97,18 @@ def customer_transactions(
     db: Session = Depends(get_db),
 ):
     return {"items": service.customer_transactions(db, user_id)}
+
+
+@router.post("/receipts/{receipt_id}/reverse")
+def reverse_receipt(
+    receipt_id: uuid.UUID,
+    body: ReverseReceiptIn,
+    user: User = _admin,
+    db: Session = Depends(get_db),
+):
+    receipt = service.reverse_receipt_credit(db, user, receipt_id, body.reason)
+    db.commit()
+    return {"id": receipt.id, "status": receipt.status, "rejection_reason": receipt.rejection_reason}
 
 
 @router.patch("/support-requests/{request_id}")

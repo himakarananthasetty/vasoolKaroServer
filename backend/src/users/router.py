@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, UploadFile
+import mimetypes
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from src.auth.dependencies import get_current_user
@@ -48,6 +52,20 @@ def delete_me(user: User = Depends(get_current_user), db: Session = Depends(get_
     service.delete_account(db, user)
     db.commit()
     return {"ok": True}
+
+
+@router.get("/me/avatar")
+def get_avatar(user: User = Depends(get_current_user)):
+    if not user.avatar_path or not Path(user.avatar_path).is_file():
+        raise HTTPException(status_code=404, detail="No avatar")
+    media_type, _ = mimetypes.guess_type(user.avatar_path)
+    return FileResponse(user.avatar_path, media_type=media_type or "application/octet-stream")
+
+
+@router.delete("/me/avatar", status_code=204)
+def remove_avatar(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    service.delete_avatar(db, user)
+    db.commit()
 
 
 @router.put("/me/avatar", response_model=ProfileOut)

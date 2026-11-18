@@ -35,6 +35,8 @@ def get_current_user(
     user = db.get(User, uuid.UUID(payload["sub"]))
     if user is None or user.deleted_at is not None:
         raise InvalidCredentials()
+    if user.deactivated_at is not None:
+        raise Forbidden("Account is deactivated.")
     return user
 
 

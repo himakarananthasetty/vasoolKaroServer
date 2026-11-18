@@ -400,6 +400,19 @@ CREATE TABLE notifications (
 CREATE INDEX idx_notifications_user ON notifications (user_id, created_at);
 """)
 
+        op.execute("""\
+CREATE FUNCTION wallet_ledger_protect() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'wallet_ledger is immutable: % not permitted', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+""")
+        op.execute("""\
+CREATE TRIGGER wallet_ledger_immutable
+    BEFORE UPDATE OR DELETE ON wallet_ledger
+    FOR EACH ROW EXECUTE FUNCTION wallet_ledger_protect();
+""")
+
 
 def downgrade() -> None:
     pass

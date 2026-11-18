@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from src.auth.dependencies import get_current_user
+from src.auth.dependencies import client_ip, get_current_user
+from src.common.rate_limit import check_rate_limit
 from src.core.db import get_db
 from src.db.models import User
 from src.support import service
@@ -31,9 +32,18 @@ def list_requests(
 @router.post("", status_code=201)
 def create_request(
     body: SupportCreateIn,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    check_rate_limit(
+        db,
+        action="support_create",
+        subject_kind="ip",
+        subject_id=client_ip(request),
+        limit=5,
+        window_seconds=3600,
+    )
     row = service.create_request(db, user, body.topic, body.message)
     db.commit()
     return service.SupportOut.model_validate(row)

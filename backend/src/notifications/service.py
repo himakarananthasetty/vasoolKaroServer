@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
@@ -60,6 +60,7 @@ class PushSubscriptionIn(BaseModel):
     p256dh: str = Field(min_length=1, max_length=256)
     auth_key: str = Field(min_length=1, max_length=256)
 
+    @field_validator("endpoint")
     @classmethod
     def validate_endpoint(cls, v: str) -> str:
         if not v.startswith("https://"):

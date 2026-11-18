@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from src.auth.dependencies import get_current_user
+from src.auth.dependencies import client_ip, get_current_user
+from src.common.rate_limit import check_rate_limit
 from src.core.db import get_db
 from src.core.errors import ValidationError
 from src.db.models import User
@@ -44,9 +45,18 @@ def mark_read(
 @router.post("/push/subscriptions", status_code=204)
 def register_push(
     body: PushSubscriptionIn,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    check_rate_limit(
+        db,
+        action="push_register",
+        subject_kind="ip",
+        subject_id=client_ip(request),
+        limit=20,
+        window_seconds=3600,
+    )
     service.register_push(db, user, body)
     db.commit()
 
