@@ -39,7 +39,7 @@ def _web_push_sender(subscription, payload: dict) -> int:
     if not (settings.push_vapid_private_key and settings.push_vapid_public_key):
         return 200
     try:
-        from pywebpush import WebPushException, webpush  # type: ignore[import-not-found]  # noqa: PLC0415
+        from pywebpush import WebPushException, webpush  # type: ignore[import-untyped]  # noqa: PLC0415
     except ImportError:
         return 200
     try:

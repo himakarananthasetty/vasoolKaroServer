@@ -1431,6 +1431,14 @@ These paths are a suggested translation, not routes that currently exist in the 
 - Keep original timestamps and statuses.
 - Validate that every `wallet_ledger.reference_key` is unique before import.
 - Validate that every non-rejected receipt fingerprint is unique.
+- Recompute fingerprints before enabling duplicate checks: this backend hashes
+  SHA-256 over the five normalized inputs (lower-cased merchant name, ISO purchase
+  date, total cents, lower-cased receipt number, card last4) instead of the legacy
+  MD5. All five inputs are stored on each receipt row, so after import run
+  `python3 -m scripts.recompute_fingerprints` once — it rewrites every stored
+  fingerprint from the row's own columns, making old and new data comparable with
+  no legacy hash retained. The partial unique index on non-rejected fingerprints
+  then guards the recomputed values; any collision it raises is a true duplicate.
 - Validate that each payout amount equals the sum of its linked ledger rows.
 - Validate that no user has more than one open payout.
 - Do not import `submit_log` history unless you intentionally want to preserve the current rate-limit window.

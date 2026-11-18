@@ -113,6 +113,37 @@ def test_receipt_reversal_restores_balance(client, shopper, offer, retailer):
     assert r2.status_code == 400
 
 
+def test_receipt_reversal_releases_offer_budget(client, shopper, offer, retailer):
+    admin = _admin_signup(client)
+    sub = client.post(
+        "/api/v1/claims/receipts",
+        headers=shopper["headers"],
+        json={
+            "offer_id": offer["id"],
+            "merchant_name": "Test Stores",
+            "purchase_date": "2026-11-10",
+            "total_cents": 30000,
+            "receipt_number": _rn("INV-B"),
+        },
+    )
+    assert sub.json()["status"] == "APPROVED"
+    mine = client.get("/api/v1/retailer/offers", headers=retailer["headers"]).json()["items"]
+    row = next(o for o in mine if o["id"] == offer["id"])
+    spent_after_claim = row["spent_cents"]
+    assert spent_after_claim == 5000
+
+    r = client.post(
+        f"/api/v1/admin/receipts/{sub.json()['id']}/reverse",
+        headers=admin["headers"],
+        json={"reason": "budget release check"},
+    )
+    assert r.status_code == 200, r.json()
+
+    mine2 = client.get("/api/v1/retailer/offers", headers=retailer["headers"]).json()["items"]
+    row2 = next(o for o in mine2 if o["id"] == offer["id"])
+    assert row2["spent_cents"] == 0
+
+
 def test_receipt_reversal_requires_admin(client, shopper, offer):
     sub = client.post(
         "/api/v1/claims/receipts",

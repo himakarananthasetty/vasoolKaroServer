@@ -299,6 +299,11 @@ def reverse_receipt_credit(db: Session, admin: User, receipt_id: uuid.UUID, reas
     receipt.status = "REVERSED"
     receipt.rejection_reason = reason
 
+    # §6.17: reversal releases the offer budget, never below zero.
+    offer_row = db.get(Offer, receipt.offer_id) if receipt.offer_id else None
+    if offer_row is not None:
+        offer_row.spent_cents = max(0, offer_row.spent_cents - original.amount_cents)
+
     db.add(
         WalletLedger(
             user_id=receipt.user_id,
