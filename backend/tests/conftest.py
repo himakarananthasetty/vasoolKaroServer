@@ -14,7 +14,13 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://postgres:postgres@127.0.0.1:54329/postgres")
+_TEST_DB = "postgresql+psycopg://postgres:postgres@127.0.0.1:54329/postgres"
+os.environ.setdefault("DATABASE_URL", _TEST_DB)
+if "DATABASE_URL" in os.environ and os.environ["DATABASE_URL"] != _TEST_DB and "54329" not in os.environ["DATABASE_URL"]:
+    raise RuntimeError(
+        "Tests must run against the isolated test database on port 54329. "
+        f"Refusing DATABASE_URL={os.environ['DATABASE_URL']!r}."
+    )
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-pytest-only-0123456789abcdef")
 os.environ.setdefault("INTERNAL_SERVICE_TOKEN", "test-internal-token")
 
